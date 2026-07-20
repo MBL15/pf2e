@@ -1,0 +1,592 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Глубины — генератор карт Pathfinder 2e</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Sora:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="css/styles.css" />
+</head>
+<body>
+  <div class="app">
+    <header class="brand-bar">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true">
+          <span class="brand-mark-inner"></span>
+        </span>
+        <div>
+          <h1 class="brand-name">Глубины</h1>
+          <p class="brand-tag">Карты и отряд для Pathfinder 2e</p>
+        </div>
+      </div>
+      <div class="header-actions">
+        <button type="button" class="account-chip" id="btnAccount" title="Аккаунты">
+          <span class="account-chip-role" id="accountChipRole">—</span>
+          <span class="account-chip-name" id="accountChipName">Войти</span>
+        </button>
+        <a class="btn ghost help-btn" href="https://pf2.ru/" target="_blank" rel="noopener noreferrer">Справочник pf2.ru</a>
+        <button type="button" class="btn ghost help-btn" id="btnHelp" title="Краткая справка">Справка</button>
+      </div>
+    </header>
+
+    <aside class="panel panel-controls">
+      <nav class="panel-tabs" role="tablist" aria-label="Разделы">
+        <button type="button" class="panel-tab is-active" role="tab" aria-selected="true" data-panel="map">Карта</button>
+        <button type="button" class="panel-tab" role="tab" aria-selected="false" data-panel="rooms">
+          Комнаты <span class="tab-count" id="roomTabCount">0</span>
+        </button>
+        <button type="button" class="panel-tab" role="tab" aria-selected="false" data-panel="party">Отряд</button>
+      </nav>
+
+      <div class="panel-body">
+        <section class="panel-page is-active" id="panelMap" role="tabpanel">
+          <div class="panel-section" id="mapGenControls">
+            <div class="stat-row">
+              <label class="stat-field">
+                <span class="stat-label">Комнат</span>
+                <strong id="roomCountOut">7</strong>
+                <input type="range" id="roomCount" min="3" max="16" value="7" />
+              </label>
+              <label class="stat-field">
+                <span class="stat-label">Размер</span>
+                <strong id="roomSizeOut">5</strong>
+                <input type="range" id="roomSize" min="3" max="10" value="5" />
+              </label>
+            </div>
+
+            <p class="panel-label">Сетинг</p>
+            <div class="setting-grid" role="radiogroup" aria-label="Сетинг подземелья">
+              <button type="button" class="setting-card is-active" data-setting="forest" aria-pressed="true">
+                <span class="setting-icon forest" aria-hidden="true"></span>
+                <strong>Лес</strong>
+              </button>
+              <button type="button" class="setting-card" data-setting="city" aria-pressed="false">
+                <span class="setting-icon city" aria-hidden="true"></span>
+                <strong>Город</strong>
+              </button>
+              <button type="button" class="setting-card" data-setting="dungeon" aria-pressed="false">
+                <span class="setting-icon dungeon" aria-hidden="true"></span>
+                <strong>Подземелье</strong>
+              </button>
+            </div>
+
+            <button type="button" class="btn primary btn-block" id="btnGenerate">Перегенерировать карту</button>
+
+            <div class="seed-row" title="Сид текущей карты">
+              <span class="stat-label">Сид</span>
+              <code id="mapSeedOut">—</code>
+              <button type="button" class="btn ghost small" id="btnCopySeed" title="Скопировать сид">Копировать</button>
+            </div>
+
+            <p class="panel-note map-save-hint">Данные в SQLite. <kbd>F5</kbd> — сохранить карту и обновить страницу.</p>
+          </div>
+          <div class="panel-section" id="mapPlayerNote" hidden>
+            <p class="panel-note">Генерация карты доступна только мастеру. Смотрите комнаты и отряд во соседних вкладках.</p>
+          </div>
+        </section>
+
+        <section class="panel-page" id="panelRooms" role="tabpanel" hidden>
+          <div class="panel-section">
+            <div class="panel-toolbar">
+              <p class="panel-note" id="roomPickHint">Клик по комнате — открыть крупно. Мастер разрешает вход игрокам кнопкой «Вход».</p>
+              <button type="button" class="btn ghost small" id="btnCloseRoom" hidden>Назад</button>
+            </div>
+            <ul class="entity-list" id="roomList"></ul>
+          </div>
+        </section>
+
+        <section class="panel-page" id="panelParty" role="tabpanel" hidden>
+          <div class="panel-section">
+            <div class="party-switch" role="tablist" aria-label="Отряд">
+              <button type="button" class="party-tab is-active" data-party="heroes" aria-selected="true">
+                Герои <span class="tab-count" id="heroTabCount">0</span>
+              </button>
+              <button type="button" class="party-tab" data-party="enemies" aria-selected="false">
+                Враги <span class="tab-count" id="enemyTabCount">0</span>
+              </button>
+            </div>
+
+            <div class="party-pane is-active" id="partyHeroes">
+              <div class="panel-toolbar">
+                <p class="panel-note" id="partyPlaceHint">Выберите и кликните клетку</p>
+                <button type="button" class="btn small" id="btnNewChar">+ Герой</button>
+              </div>
+              <ul class="entity-list" id="charList"></ul>
+            </div>
+
+            <div class="party-pane" id="partyEnemies" hidden>
+              <div class="panel-toolbar">
+                <button type="button" class="btn small" id="btnBestiary">Бестиарий</button>
+                <button type="button" class="btn small" id="btnNewEnemy">+ Враг</button>
+              </div>
+              <ul class="entity-list" id="enemyList"></ul>
+              <button type="button" class="btn ghost btn-block" id="btnClearTokens">Убрать жетоны</button>
+            </div>
+          </div>
+        </section>
+      </div>
+    </aside>
+
+    <main class="stage">
+      <div class="map-toolbar" id="mapToolbar">
+        <div class="view-toggle" role="group" aria-label="Вид карты">
+          <button type="button" class="view-btn is-active" data-view="top" id="btnTop">Сверху</button>
+          <button type="button" class="view-btn" data-view="iso" id="btnIso">Изометрия</button>
+        </div>
+
+        <div class="view-toggle role-toggle" role="group" aria-label="Режим карты">
+          <button type="button" class="view-btn is-active" data-role="master" id="btnRoleMaster" title="Мастер видит всю карту">Мастер</button>
+          <button type="button" class="view-btn" data-role="player" id="btnRolePlayer" title="Игрок — только посещённые комнаты">Игрок</button>
+        </div>
+
+        <div class="iso-rotate" id="isoRotate" hidden role="group" aria-label="Поворот карты">
+          <button type="button" class="view-btn" id="btnRotateLeft" title="Повернуть влево (Q)">↺</button>
+          <span class="iso-angle" id="isoAngleLabel">0°</span>
+          <button type="button" class="view-btn" id="btnRotateRight" title="Повернуть вправо (E)">↻</button>
+        </div>
+
+        <button type="button" class="btn ghost" id="btnRegenToolbar" title="Перегенерировать карту">↻ Карта</button>
+
+        <div class="toolbar-spacer"></div>
+
+        <div class="tool-toggle" id="editTools" hidden role="group" aria-label="Инструмент">
+          <button type="button" class="tool-btn is-active" data-tool="token" id="toolToken">Жетоны</button>
+          <button type="button" class="tool-btn" data-tool="obstacle" id="toolObstacle">Препятствия</button>
+          <button type="button" class="btn ghost tool-clear" id="btnClearObstacles" title="Очистить препятствия в комнате">Очистить</button>
+        </div>
+
+        <button type="button" class="btn ghost" id="btnToolbarBack" hidden>Назад</button>
+      </div>
+
+      <div class="canvas-wrap" id="canvasWrap">
+        <canvas id="mapCanvas" width="960" height="640"></canvas>
+        <div class="zoom-controls" role="group" aria-label="Масштаб карты">
+          <button type="button" class="zoom-btn" id="btnZoomIn" title="Приблизить (+ / колёсико)">+</button>
+          <button type="button" class="zoom-btn zoom-label" id="btnZoomReset" title="Сбросить масштаб">100%</button>
+          <button type="button" class="zoom-btn" id="btnZoomOut" title="Отдалить (− / колёсико)">−</button>
+        </div>
+        <div class="room-banner" id="roomBanner" hidden></div>
+        <div class="stage-overlay is-hidden" id="stageHint">Нажмите «Перегенерировать карту»</div>
+      </div>
+
+      <div class="status-bar" id="statusBar" role="status">
+        <span class="status-dot" aria-hidden="true"></span>
+        <span id="statusText">Загрузка…</span>
+        <span class="status-seed" id="statusSeed" hidden>Сид <code id="statusSeedValue">—</code></span>
+      </div>
+
+      <div class="legend" id="legend"></div>
+    </main>
+  </div>
+
+  <div class="toast" id="toast" hidden role="status"></div>
+
+  <dialog class="help-dialog" id="helpDialog">
+    <div class="help-body">
+      <h2>Как пользоваться</h2>
+      <ol class="help-steps">
+        <li><strong>Аккаунты</strong> — в шапке: мастер видит всё и правит статы героев; игрок привязан к своему персонажу.</li>
+        <li><strong>Перегенерируйте карту</strong> — вкладка «Карта» или кнопка «↻ Карта» на панели (только мастер).</li>
+        <li><strong>Режим Мастер / Игрок</strong> — туман войны на карте; у аккаунта-мастера можно переключать вид.</li>
+        <li><strong>Откройте комнату</strong> — вкладка «Комнаты». Мастер жмёт «Вход», чтобы разрешить игрокам пройти дальше.</li>
+        <li><strong>Герои и враги</strong> — вкладка «Отряд»; «Лист» — просмотр статов героя, «Изм.» — правка (свой герой / мастер). WASD / стрелки — ход.</li>
+        <li><strong>Препятствия</strong> — в открытой комнате переключите режим «Препятствия».</li>
+      </ol>
+      <p class="hint">
+        Правила и справочник:
+        <a href="https://pf2.ru/" target="_blank" rel="noopener noreferrer">pf2.ru</a>,
+        <a href="https://www.pf2.ru/ancestries" target="_blank" rel="noopener noreferrer">народы</a>,
+        <a href="https://www.pf2.ru/classes" target="_blank" rel="noopener noreferrer">классы</a>,
+        <a href="https://www.pf2.ru/monsters" target="_blank" rel="noopener noreferrer">монстры</a>.
+        В приложении есть встроенный бестиарий (~1900 существ).
+      </p>
+        <p class="hint">Клавиши: <kbd>WASD</kbd> / стрелки — ход выбранного жетона, <kbd>Space</kbd> — снять выделение, <kbd>F5</kbd> — сохранить карту в SQLite и обновить страницу, <kbd>Esc</kbd> — назад, <kbd>1</kbd>/<kbd>2</kbd> — жетоны / препятствия, в изометрии <kbd>Q</kbd>/<kbd>E</kbd> — поворот. Масштаб: кнопки +/−, колёсико мыши; средняя кнопка — сдвиг карты. Запуск: <kbd>npm start</kbd> → http://127.0.0.1:8765</p>
+      <button type="button" class="btn primary btn-block" id="btnCloseHelp">Понятно</button>
+    </div>
+  </dialog>
+
+  <dialog class="profile-dialog" id="charDialog">
+    <form id="charForm" class="profile-shell">
+      <header class="profile-header">
+        <div>
+          <p class="profile-kicker">Профиль героя</p>
+          <h2 id="charDialogTitle">Новый персонаж</h2>
+        </div>
+        <div class="profile-header-actions">
+          <a class="profile-link" href="https://www.pf2.ru/rules/building%20characters" target="_blank" rel="noopener noreferrer">Правила PF2e</a>
+          <button type="button" class="profile-icon-btn" id="btnCancelChar" title="Закрыть" aria-label="Закрыть">✕</button>
+        </div>
+      </header>
+
+      <div class="profile-scroll">
+        <section class="profile-photo-block">
+          <div class="profile-photo" id="charPhoto">
+            <img id="charPortraitImg" class="profile-photo-img" alt="" hidden />
+            <div class="profile-photo-fallback" id="charPortraitFallback" aria-hidden="true">
+              <span id="charPortraitSymbol">⚔</span>
+            </div>
+          </div>
+          <div class="profile-photo-side">
+            <p class="profile-section-title">Аватар</p>
+            <p class="profile-help">Загрузите фото или выберите символ и цвет жетона на карте.</p>
+            <div class="profile-photo-actions">
+              <label class="profile-btn secondary">
+                Загрузить фото
+                <input type="file" id="charPortraitFile" accept="image/*" hidden />
+              </label>
+              <button type="button" class="profile-btn ghost" id="btnClearPortrait" hidden>Убрать фото</button>
+            </div>
+            <div class="profile-token-row">
+              <label class="profile-field compact">
+                <span>Символ</span>
+                <div class="profile-symbol-row">
+                  <button type="button" class="profile-icon-btn" id="btnPortraitPrev" aria-label="Предыдущий">‹</button>
+                  <select id="charSymbol" aria-label="Символ жетона">
+                    <option value="⚔">⚔</option>
+                    <option value="✦">✦</option>
+                    <option value="🛡">🛡</option>
+                    <option value="🏹">🏹</option>
+                    <option value="🔮">🔮</option>
+                    <option value="🗡">🗡</option>
+                    <option value="⚜">⚜</option>
+                    <option value="★">★</option>
+                  </select>
+                  <button type="button" class="profile-icon-btn" id="btnPortraitNext" aria-label="Следующий">›</button>
+                </div>
+              </label>
+              <label class="profile-field compact">
+                <span>Цвет</span>
+                <input type="color" id="charColor" value="#0f6b5c" />
+              </label>
+            </div>
+          </div>
+        </section>
+
+        <section class="profile-section">
+          <label class="profile-field">
+            <span>Имя</span>
+            <input type="text" id="charName" maxlength="28" required placeholder="Как зовут героя?" autocomplete="off" />
+          </label>
+          <p class="profile-preview" id="advClassLine">Человек · Воин · Ур. 1</p>
+        </section>
+
+        <section class="profile-section">
+          <div class="profile-section-head">
+            <h3>Кто вы</h3>
+            <div class="profile-inline-links">
+              <a class="profile-link" id="charAncestryLink" href="https://www.pf2.ru/ancestries" target="_blank" rel="noopener">Народы</a>
+              <a class="profile-link" id="charClassLink" href="https://www.pf2.ru/classes" target="_blank" rel="noopener">Классы</a>
+            </div>
+          </div>
+          <div class="profile-grid">
+            <label class="profile-field">
+              <span>Уровень</span>
+              <input type="number" id="charLevel" min="1" max="20" value="1" />
+            </label>
+            <label class="profile-field">
+              <span>Народ</span>
+              <select id="charAncestry"></select>
+            </label>
+            <label class="profile-field">
+              <span>Происхождение</span>
+              <select id="charBackground"></select>
+            </label>
+            <label class="profile-field">
+              <span>Класс</span>
+              <select id="charClass"></select>
+            </label>
+          </div>
+        </section>
+
+        <section class="profile-section">
+          <h3>О герое</h3>
+          <label class="profile-field">
+            <span>История</span>
+            <textarea id="charBio" rows="4" maxlength="1200" placeholder="Кто вы, откуда пришли, чего ищете в глубинах…"></textarea>
+          </label>
+          <label class="profile-field">
+            <span>Короткая заметка для списка</span>
+            <input type="text" id="charNote" maxlength="200" placeholder="Например: страж отряда" />
+          </label>
+        </section>
+
+        <section class="profile-section profile-sheet">
+          <h3>Лист персонажа</h3>
+          <div class="profile-tabs" role="tablist" aria-label="Лист персонажа">
+            <button type="button" class="profile-tab is-active" data-adv-tab="attrs" role="tab" aria-selected="true">Характеристики</button>
+            <button type="button" class="profile-tab" data-adv-tab="feats" role="tab" aria-selected="false">Черты</button>
+            <button type="button" class="profile-tab" data-adv-tab="combat" role="tab" aria-selected="false">Бой</button>
+            <button type="button" class="profile-tab" data-adv-tab="skills" role="tab" aria-selected="false">Навыки</button>
+          </div>
+
+          <div class="profile-panes">
+            <div class="adv-pane profile-pane is-active" id="advPaneAttrs" role="tabpanel">
+              <p class="profile-help" id="advAbilityHint">Модификаторы после бустов народа, происхождения и класса.</p>
+              <div class="adv-stat-list" id="charAbilities"></div>
+              <button type="button" class="profile-btn secondary" id="btnSuggestAbilities">Подставить бусты PF2e</button>
+            </div>
+
+            <div class="adv-pane profile-pane" id="advPaneFeats" role="tabpanel" hidden>
+              <p class="profile-help">Черты 1 уровня · выбрано: <strong id="advFeatCount">0</strong></p>
+              <div class="adv-feat-list" id="charFeatList"></div>
+              <a class="profile-link" href="https://www.pf2.ru/feats" target="_blank" rel="noopener noreferrer">Все черты на pf2.ru</a>
+            </div>
+
+            <div class="adv-pane profile-pane" id="advPaneCombat" role="tabpanel" hidden>
+              <p class="profile-help">Боевые параметры. Можно пересчитать по правилам PF2e.</p>
+              <div class="adv-stat-list compact">
+                <label class="adv-stat-row"><span>ПЗ текущие</span><input type="number" id="charHp" min="0" max="9999" value="20" /></label>
+                <label class="adv-stat-row"><span>ПЗ макс.</span><input type="number" id="charHpMax" min="1" max="9999" value="20" /></label>
+                <label class="adv-stat-row"><span>КБ</span><input type="number" id="charAc" min="1" max="50" value="15" /></label>
+                <label class="adv-stat-row"><span>Стойкость</span><input type="number" id="charFort" min="-5" max="40" value="5" /></label>
+                <label class="adv-stat-row"><span>Реакция</span><input type="number" id="charRef" min="-5" max="40" value="5" /></label>
+                <label class="adv-stat-row"><span>Воля</span><input type="number" id="charWill" min="-5" max="40" value="5" /></label>
+                <label class="adv-stat-row"><span>Восприятие</span><input type="number" id="charPerception" min="-5" max="40" value="5" /></label>
+                <label class="adv-stat-row"><span>Скорость</span><input type="number" id="charSpeed" min="5" max="120" step="5" value="25" /></label>
+              </div>
+              <label class="profile-field">
+                <span>Атака</span>
+                <input type="text" id="charAttack" maxlength="80" placeholder="+7 длинный меч, 1d8+4" />
+              </label>
+              <button type="button" class="profile-btn secondary" id="btnRecalcChar">Пересчитать по PF2e</button>
+            </div>
+
+            <div class="adv-pane profile-pane" id="advPaneSkills" role="tabpanel" hidden>
+              <p class="profile-help">Значение навыка от <strong>0</strong> до <strong>20</strong>.</p>
+              <div class="adv-skill-list" id="charSkillList"></div>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <footer class="profile-footer">
+        <button type="button" class="profile-btn danger ghost" id="btnDeleteChar" hidden>Удалить</button>
+        <div class="profile-footer-spacer"></div>
+        <button type="button" class="profile-btn ghost" id="btnCancelCharFooter">Отмена</button>
+        <button type="submit" class="profile-btn primary" id="btnSaveChar">Сохранить</button>
+      </footer>
+    </form>
+  </dialog>
+
+  <dialog class="char-dialog bestiary-dialog" id="bestiaryDialog">
+    <div class="bestiary-shell">
+      <div class="dialog-head">
+        <h2>Бестиарий PF2e</h2>
+        <div class="bestiary-head-links">
+          <a class="ref-link" href="https://www.pf2.ru/monsters" target="_blank" rel="noopener noreferrer">pf2.ru</a>
+          <button type="button" class="btn ghost small" id="btnCloseBestiary">Закрыть</button>
+        </div>
+      </div>
+
+      <div class="bestiary-filters">
+        <label class="field grow">
+          <span>Поиск</span>
+          <input type="search" id="bestiaryQuery" placeholder="Goblin, wolf, skeleton…" autocomplete="off" />
+        </label>
+        <label class="field">
+          <span>Тип</span>
+          <select id="bestiaryType">
+            <option value="">Все</option>
+          </select>
+        </label>
+        <label class="field">
+          <span>Ур. от</span>
+          <input type="number" id="bestiaryLevelMin" min="-1" max="25" placeholder="-1" />
+        </label>
+        <label class="field">
+          <span>Ур. до</span>
+          <input type="number" id="bestiaryLevelMax" min="-1" max="25" placeholder="20" />
+        </label>
+      </div>
+
+      <p class="hint" id="bestiaryStatus">Загрузка бестиария…</p>
+
+      <div class="bestiary-layout">
+        <ul class="bestiary-list" id="bestiaryList"></ul>
+        <div class="bestiary-detail" id="bestiaryDetail">
+          <p class="hint">Выберите существо слева, чтобы увидеть статы и добавить его как врага.</p>
+        </div>
+      </div>
+    </div>
+  </dialog>
+
+  <dialog class="char-dialog wide-dialog" id="enemyDialog">
+    <form id="enemyForm" class="char-form">
+      <div class="dialog-head">
+        <h2 id="enemyDialogTitle">Редактор врага PF2e</h2>
+        <a class="ref-link" href="https://www.pf2.ru/monsters" target="_blank" rel="noopener noreferrer">Бестиарий</a>
+      </div>
+
+      <label class="field">
+        <span>Имя</span>
+        <input type="text" id="enemyName" maxlength="28" required placeholder="Гоблин-воин" />
+      </label>
+
+      <div class="form-row three">
+        <label class="field">
+          <span>Уровень</span>
+          <input type="number" id="enemyLevel" min="-1" max="20" value="1" />
+        </label>
+        <label class="field">
+          <span>Тип существа</span>
+          <select id="enemyType"></select>
+        </label>
+        <label class="field">
+          <span>Размер</span>
+          <select id="enemySize"></select>
+        </label>
+      </div>
+
+      <div class="form-row three">
+        <label class="field">
+          <span>ПЗ</span>
+          <input type="number" id="enemyHp" min="0" max="9999" value="20" />
+        </label>
+        <label class="field">
+          <span>ПЗ макс.</span>
+          <input type="number" id="enemyHpMax" min="1" max="9999" value="20" />
+        </label>
+        <label class="field">
+          <span>КБ</span>
+          <input type="number" id="enemyAc" min="1" max="50" value="16" />
+        </label>
+      </div>
+
+      <div class="form-row">
+        <label class="field">
+          <span>Стойкость</span>
+          <input type="number" id="enemyFort" min="-5" max="50" value="8" />
+        </label>
+        <label class="field">
+          <span>Реакция</span>
+          <input type="number" id="enemyRef" min="-5" max="50" value="8" />
+        </label>
+      </div>
+      <div class="form-row">
+        <label class="field">
+          <span>Воля</span>
+          <input type="number" id="enemyWill" min="-5" max="50" value="4" />
+        </label>
+        <label class="field">
+          <span>Восприятие</span>
+          <input type="number" id="enemyPerception" min="-5" max="50" value="7" />
+        </label>
+      </div>
+
+      <div class="form-row three">
+        <label class="field">
+          <span>Скорость</span>
+          <input type="number" id="enemySpeed" min="0" max="120" step="5" value="25" />
+        </label>
+        <label class="field">
+          <span>Атака</span>
+          <input type="number" id="enemyAttack" min="-5" max="50" value="10" />
+        </label>
+        <label class="field">
+          <span>Урон</span>
+          <input type="text" id="enemyDamage" maxlength="40" value="1d8+4" />
+        </label>
+      </div>
+
+      <label class="field">
+        <span>Дескрипторы / черты</span>
+        <input type="text" id="enemyTraits" maxlength="80" placeholder="гуманоид, гоблин…" />
+      </label>
+
+      <div class="form-row">
+        <label class="field">
+          <span>Цвет жетона</span>
+          <input type="color" id="enemyColor" value="#7f1d1d" />
+        </label>
+        <label class="field">
+          <span>Символ</span>
+          <select id="enemySymbol">
+            <option value="☠">☠</option>
+            <option value="🐺">🐺</option>
+            <option value="👁">👁</option>
+            <option value="🦴">🦴</option>
+            <option value="🔥">🔥</option>
+            <option value="✦">✦</option>
+            <option value="⚔">⚔</option>
+          </select>
+        </label>
+      </div>
+
+      <label class="field">
+        <span>Заметка</span>
+        <textarea id="enemyNote" rows="2" maxlength="200" placeholder="Способности, сопротивление, тактика…"></textarea>
+      </label>
+
+      <button type="button" class="btn ghost btn-block" id="btnRecalcEnemy">Подставить умеренные значения по уровню (создание существ)</button>
+      <p class="hint">Базовые числа — умеренная сложность по таблице создания существ PF2e. Точные статы смотрите в <a href="https://www.pf2.ru/monsters" target="_blank" rel="noopener">бестиарии</a>.</p>
+
+      <div class="dialog-actions">
+        <button type="button" class="btn danger ghost" id="btnDeleteEnemy" hidden>Удалить</button>
+        <div class="spacer"></div>
+        <button type="button" class="btn ghost" id="btnCancelEnemy">Отмена</button>
+        <button type="submit" class="btn primary">Сохранить</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog class="account-dialog" id="accountDialog">
+    <div class="account-shell">
+      <header class="dialog-head">
+        <h2>Аккаунты</h2>
+        <button type="button" class="btn ghost small" id="btnCloseAccountDialog">Закрыть</button>
+      </header>
+
+      <p class="panel-note" id="accountSessionNote">Выберите аккаунт или создайте новый.</p>
+
+      <ul class="entity-list account-list" id="accountList"></ul>
+
+      <form id="accountCreateForm" class="account-create">
+        <p class="panel-label">Новый аккаунт</p>
+        <div class="account-create-grid">
+          <label class="field">
+            <span>Имя</span>
+            <input type="text" id="accountName" maxlength="32" required placeholder="Например, Матвей" />
+          </label>
+          <label class="field">
+            <span>Роль</span>
+            <select id="accountRole">
+              <option value="player">Игрок</option>
+              <option value="master">Мастер</option>
+            </select>
+          </label>
+          <label class="field" id="accountCharField">
+            <span>Персонаж</span>
+            <select id="accountCharacter"></select>
+          </label>
+          <label class="field">
+            <span>PIN (необязательно)</span>
+            <input type="password" id="accountPin" maxlength="8" inputmode="numeric" placeholder="····" autocomplete="new-password" />
+          </label>
+        </div>
+        <button type="submit" class="btn primary btn-block">Создать и войти</button>
+      </form>
+    </div>
+  </dialog>
+
+  <dialog class="account-dialog account-pin-dialog" id="accountPinDialog">
+    <form id="accountPinForm" class="account-shell">
+      <header class="dialog-head">
+        <h2>Вход</h2>
+      </header>
+      <p class="panel-note" id="accountPinLabel">Введите PIN</p>
+      <label class="field">
+        <span>PIN</span>
+        <input type="password" id="accountPinInput" maxlength="8" inputmode="numeric" required autocomplete="current-password" />
+      </label>
+      <div class="dialog-actions">
+        <button type="button" class="btn ghost" id="btnCancelPin">Отмена</button>
+        <button type="submit" class="btn primary">Войти</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
