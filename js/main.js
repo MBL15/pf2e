@@ -1,5 +1,5 @@
-import { generateDungeon, isWalkable, canPlaceObstacle, findRoomAt, getStartSpawnCells, computeVisibleCells, THEMES } from "./generator.js";
-import { renderMap } from "./renderer.js";
+import { generateDungeon, isCellWalkable, canPlaceObstacle, findRoomAt, getStartSpawnCells, computeVisibleCells, getRoomConnectionDoors, THEMES, OBSTACLE_TYPES, ROOM_SHAPE_LABELS } from "./generator.js";
+import { renderMap, computePanToCenterOnCell, renderObstaclePreview } from "./renderer.js";
 import {
   hydrateCharacters,
   readLegacyCharacters,
@@ -70,6 +70,7 @@ let mapPanY = 0;
 const ZOOM_MIN = 0.4;
 const ZOOM_MAX = 5;
 const ZOOM_STEP = 1.25;
+const SELECT_ZOOM = 2.05;
 /** @type {import('./generator.js').SettingId} */
 let setting = "forest";
 /** @type {import('./characters.js').Character[]} */
@@ -94,6 +95,14 @@ let selectedRoomId = null;
 let openedRoomId = null;
 /** @type {'token' | 'obstacle'} */
 let editTool = "token";
+/** @type {Record<string, number>} */
+let obstacleVariants = {};
+/** @type {Record<string, boolean>} ключ "x,y" → дверь открыта */
+let doorStates = {};
+/** @type {number} */
+let selectedObstacleVariant = 0;
+/** @type {'map'|'rooms'|'party'} */
+let panelTabBeforeObstacles = "party";
 /** @type {'master' | 'player'} */
 let mapRole = "master";
 /** @type {Set<number>} */
@@ -124,6 +133,9 @@ const enemyList = document.getElementById("enemyList");
 const roomList = document.getElementById("roomList");
 const roomBanner = document.getElementById("roomBanner");
 const editTools = document.getElementById("editTools");
+const panelObstacles = document.getElementById("panelObstacles");
+const obstaclePicker = document.getElementById("obstaclePicker");
+const obstacleRoomName = document.getElementById("obstacleRoomName");
 const roomPickHint = document.getElementById("roomPickHint");
 const statusText = document.getElementById("statusText");
 const mapSeedOut = document.getElementById("mapSeedOut");
@@ -508,7 +520,7 @@ document.querySelectorAll(".view-btn[data-role]").forEach((btn) => {
 document.getElementById("btnRotateLeft")?.addEventListener("click", () => rotateIso(-1));
 document.getElementById("btnRotateRight")?.addEventListener("click", () => rotateIso(1));
 
-document.querySelectorAll(".tool-btn").forEach((btn) => {
+document.querySelectorAll(".tool-btn[data-tool]").forEach((btn) => {
   btn.addEventListener("click", () => {
     setEditTool(/** @type {'token' | 'obstacle'} */ (btn.getAttribute("data-tool") || "token"));
   });
@@ -630,6 +642,9 @@ async function saveMapState() {
       selectedRoomId,
       openedRoomId,
       editTool,
+      obstacleVariants,
+      doorStates,
+      selectedObstacleVariant,
       mapRole,
       visitedRoomIds: [...visitedRoomIds],
       unlockedRoomIds: [...unlockedRoomIds],
@@ -675,6 +690,10 @@ function applyMapState(data) {
     selectedRoomId = data.selectedRoomId ?? 0;
     openedRoomId = data.openedRoomId ?? null;
     setEditTool(data.editTool === "obstacle" ? "obstacle" : "token", false);
+    obstacleVariants =
+      data.obstacleVariants && typeof data.obstacleVariants === "object" ? { ...data.obstacleVariants } : {};
+    doorStates = data.doorStates && typeof data.doorStates === "object" ? { ...data.doorStates } : {};
+    selectedObstacleVariant = Number(data.selectedObstacleVariant) || 0;
     const savedVisited = Array.isArray(data.visitedRoomIds)
       ? data.visitedRoomIds.map(Number).filter((n) => Number.isFinite(n))
       : [dungeon.startRoomId ?? 0];
@@ -695,6 +714,9 @@ function applyMapState(data) {
     }
     unlockedRoomIds.add(startId);
     setMapRole(data.mapRole === "player" ? "player" : "master", false);
+    if (openedRoomId != null && isMaster(currentAccount)) {
+      openDoorsForRoom(openedRoomId);
+    }
     updateIsoRotateUi();
     return true;
   } catch {
@@ -747,6 +769,9 @@ function regenerateMap(opts = {}) {
   mapPanX = 0;
   mapPanY = 0;
   resetVisitedRooms();
+  obstacleVariants = {};
+  doorStates = {};
+  selectedObstacleVariant = 0;
   setEditTool("token", false);
   stageHint?.classList.add("is-hidden");
   updateLegend();
@@ -830,14 +855,6 @@ function updateSeedDisplay() {
   tokens = [];
   redraw();
   showToast("Жетоны убраны с карты");
-});
-
-document.getElementById("btnClearObstacles")?.addEventListener("click", () => {
-  if (!isMaster(currentAccount)) {
-    showToast("Препятствия убирает только мастер");
-    return;
-  }
-  clearObstaclesInOpenedRoom();
 });
 
 btnCloseRoom.addEventListener("click", () => closeRoom());
@@ -1092,6 +1109,12 @@ canvas.addEventListener("click", (e) => {
     return;
   }
 
+  const cellType = dungeon.grid[cell.y]?.[cell.x];
+  if (cellType === "door") {
+    toggleDoor(cell.x, cell.y);
+    return;
+  }
+
   // Клик по жетону — выделить персонажа (им же ходят WASD)
   const tokenHere = findTokenAt(cell.x, cell.y);
   if (tokenHere && editTool !== "obstacle") {
@@ -1106,7 +1129,7 @@ canvas.addEventListener("click", (e) => {
       return;
     }
     const type = dungeon.grid[cell.y]?.[cell.x];
-    if (!type || !isWalkable(type)) return;
+    if (!type || !isCellWalkable(dungeon.grid, cell.x, cell.y, doorStates)) return;
     placeSelectedToken(cell.x, cell.y);
     return;
   }
@@ -1125,7 +1148,7 @@ canvas.addEventListener("click", (e) => {
     return;
   }
 
-  if (!isWalkable(type)) {
+  if (!isCellWalkable(dungeon.grid, cell.x, cell.y, doorStates)) {
     showToast("Сюда нельзя поставить жетон");
     return;
   }
@@ -1355,7 +1378,7 @@ function moveSelectedActor(dx, dy) {
   const nx = token.x + dx;
   const ny = token.y + dy;
   const type = dungeon.grid[ny]?.[nx];
-  if (!type || !isWalkable(type)) return;
+  if (!type || !isCellWalkable(dungeon.grid, nx, ny, doorStates)) return;
 
   if (mapRole === "player" && !isCellVisibleToPlayer(nx, ny)) return;
 
@@ -1371,8 +1394,10 @@ function moveSelectedActor(dx, dy) {
   if (room) {
     markRoomVisited(room.id);
     if (openedRoomId != null && openedRoomId !== room.id) {
+      const prev = openedRoomId;
       selectedRoomId = room.id;
       openedRoomId = room.id;
+      syncOpenedRoomDoors(prev, room.id);
     }
   } else if (openedRoomId != null) {
     // Вышли в коридор — общий вид карты
@@ -1418,10 +1443,57 @@ function findTokenAt(x, y) {
 /**
  * @param {'pc'|'enemy'} type
  * @param {string} id
+ */
+function centerCameraOnActor(type, id) {
+  if (!dungeon || type !== "pc") return;
+  const token = tokens.find((t) => t.actorType === type && t.actorId === id);
+  if (!token) return;
+
+  if (openedRoomId != null) {
+    const opened = dungeon.rooms.find((r) => r.id === openedRoomId);
+    const insideOpened =
+      opened &&
+      token.x >= opened.x &&
+      token.x < opened.x + opened.w &&
+      token.y >= opened.y &&
+      token.y < opened.y + opened.h;
+    if (!insideOpened) {
+      openedRoomId = null;
+      setEditTool("token", false);
+    }
+  }
+
+  const room = findRoomAt(dungeon.rooms, token.x, token.y);
+  if (room) {
+    selectedRoomId = room.id;
+    markRoomVisited(room.id);
+  }
+
+  mapZoom = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, SELECT_ZOOM));
+
+  const pan = computePanToCenterOnCell(canvas, dungeon, view, {
+    selectedRoomId,
+    openedRoomId,
+    isoRotation,
+    zoom: mapZoom,
+    panX: 0,
+    panY: 0,
+  }, token.x, token.y);
+
+  if (pan) {
+    mapPanX = pan.panX;
+    mapPanY = pan.panY;
+  }
+}
+
+/**
+ * @param {'pc'|'enemy'} type
+ * @param {string} id
  * @param {boolean} [announce]
  */
 function selectActor(type, id, announce = true) {
   selectedActor = { type, id };
+  centerCameraOnActor(type, id);
   renderCharList();
   renderEnemyList();
   updateStatus();
@@ -1490,32 +1562,150 @@ function toggleObstacle(x, y, type) {
     showToast("Препятствие можно ставить только на пол");
     return;
   }
+  const key = `${x},${y}`;
   if (type === "obstacle") {
     dungeon.grid[y][x] = "floor";
+    delete obstacleVariants[key];
     showToast("Препятствие убрано");
   } else {
     dungeon.grid[y][x] = "obstacle";
+    obstacleVariants[key] = selectedObstacleVariant;
     tokens = tokens.filter((t) => !(t.x === x && t.y === y));
-    showToast("Препятствие поставлено");
+    const types = OBSTACLE_TYPES[dungeon.setting] || OBSTACLE_TYPES.forest;
+    const label = types[selectedObstacleVariant]?.label || "Препятствие";
+    showToast(`${label} поставлено`);
   }
   redraw();
 }
 
-function clearObstaclesInOpenedRoom() {
-  if (!dungeon || openedRoomId == null) return;
-  const room = dungeon.rooms.find((r) => r.id === openedRoomId);
-  if (!room) return;
-  let count = 0;
-  for (let y = room.y; y < room.y + room.h; y++) {
-    for (let x = room.x; x < room.x + room.w; x++) {
-      if (dungeon.grid[y][x] === "obstacle") {
-        dungeon.grid[y][x] = "floor";
-        count += 1;
-      }
-    }
+/**
+ * @param {number} x
+ * @param {number} y
+ * @param {boolean} open
+ */
+function setDoorOpen(x, y, open) {
+  const key = `${x},${y}`;
+  if (open) doorStates[key] = true;
+  else delete doorStates[key];
+}
+
+/**
+ * @param {number} roomId
+ */
+function openDoorsForRoom(roomId) {
+  if (!dungeon) return;
+  for (const { x, y } of getRoomConnectionDoors(dungeon, roomId)) {
+    setDoorOpen(x, y, true);
   }
+}
+
+/**
+ * @param {number} roomId
+ */
+function closeDoorsForRoom(roomId) {
+  if (!dungeon) return;
+  for (const { x, y } of getRoomConnectionDoors(dungeon, roomId)) {
+    setDoorOpen(x, y, false);
+  }
+}
+
+/**
+ * @param {number | null} prevRoomId
+ * @param {number | null} nextRoomId
+ */
+function syncOpenedRoomDoors(prevRoomId, nextRoomId) {
+  if (!isMaster(currentAccount) || !dungeon) return;
+  if (prevRoomId != null && prevRoomId !== nextRoomId) {
+    closeDoorsForRoom(prevRoomId);
+  }
+  if (nextRoomId != null) {
+    openDoorsForRoom(nextRoomId);
+  }
+  void saveMapState();
+}
+
+/**
+ * @param {number} x
+ * @param {number} y
+ */
+function toggleDoor(x, y) {
+  if (!dungeon || dungeon.grid[y]?.[x] !== "door") return;
+  const key = `${x},${y}`;
+  if (doorStates[key]) {
+    delete doorStates[key];
+    showToast("Дверь закрыта");
+  } else {
+    doorStates[key] = true;
+    showToast("Дверь открыта");
+  }
+  void saveMapState();
   redraw();
-  showToast(count ? `Убрано препятствий: ${count}` : "В комнате нет препятствий");
+}
+
+/**
+ * @returns {'map'|'rooms'|'party'}
+ */
+function getActivePanelTab() {
+  const active = document.querySelector(".panel-tab.is-active");
+  const panel = active ? /** @type {HTMLElement} */ (active).dataset.panel : null;
+  if (panel === "map" || panel === "rooms" || panel === "party") return panel;
+  return "party";
+}
+
+function renderObstaclePicker() {
+  if (!obstaclePicker || !dungeon) return;
+  const types = OBSTACLE_TYPES[dungeon.setting] || OBSTACLE_TYPES.forest;
+  obstaclePicker.innerHTML = types
+    .map(
+      (t) => `
+    <button type="button" class="obstacle-card${t.id === selectedObstacleVariant ? " is-active" : ""}" data-variant="${t.id}" aria-pressed="${t.id === selectedObstacleVariant}">
+      <canvas width="56" height="56" aria-hidden="true"></canvas>
+      <strong>${escapeHtml(t.label)}</strong>
+    </button>`
+    )
+    .join("");
+
+  obstaclePicker.querySelectorAll(".obstacle-card").forEach((btn) => {
+    const variant = Number(/** @type {HTMLElement} */ (btn).dataset.variant) || 0;
+    const preview = /** @type {HTMLCanvasElement | null} */ (btn.querySelector("canvas"));
+    if (preview) renderObstaclePreview(preview, dungeon.setting, variant);
+    btn.addEventListener("click", () => {
+      selectedObstacleVariant = variant;
+      renderObstaclePicker();
+    });
+  });
+}
+
+function showObstaclePanel() {
+  panelTabBeforeObstacles = getActivePanelTab();
+  for (const id of ["panelMap", "panelRooms", "panelParty"]) {
+    const el = document.getElementById(id);
+    if (!el) continue;
+    el.classList.remove("is-active");
+    el.hidden = true;
+  }
+  document.querySelectorAll(".panel-tab").forEach((btn) => {
+    btn.classList.remove("is-active");
+    btn.setAttribute("aria-selected", "false");
+  });
+  if (panelObstacles) {
+    panelObstacles.hidden = false;
+    panelObstacles.classList.add("is-active");
+  }
+  if (obstacleRoomName && dungeon && openedRoomId != null) {
+    const room = dungeon.rooms.find((r) => r.id === openedRoomId);
+    obstacleRoomName.textContent = room
+      ? `${room.name}: выберите тип и кликайте по полу на карте`
+      : "Выберите тип и кликайте по полу на карте";
+  }
+  renderObstaclePicker();
+}
+
+function hideObstaclePanel() {
+  if (!panelObstacles || panelObstacles.hidden) return;
+  panelObstacles.hidden = true;
+  panelObstacles.classList.remove("is-active");
+  setPanelTab(panelTabBeforeObstacles || "party", true);
 }
 
 /**
@@ -1523,10 +1713,27 @@ function clearObstaclesInOpenedRoom() {
  * @param {boolean} [announce]
  */
 function setEditTool(tool, announce = true) {
+  if (tool === "obstacle") {
+    if (!isMaster(currentAccount)) {
+      showToast("Препятствия — только для мастера");
+      tool = "token";
+    } else if (openedRoomId == null) {
+      showToast("Сначала откройте комнату на карте");
+      tool = "token";
+    }
+  }
+
   editTool = tool;
-  document.querySelectorAll(".tool-btn").forEach((b) => {
+  document.querySelectorAll(".tool-btn[data-tool]").forEach((b) => {
     b.classList.toggle("is-active", b.getAttribute("data-tool") === tool);
   });
+
+  if (tool === "obstacle") showObstaclePanel();
+  else {
+    hideObstaclePanel();
+    if (openedRoomId != null) setPanelTab("party");
+  }
+
   updateCursor();
   updateStatus();
   updateRoomChrome();
@@ -1562,8 +1769,10 @@ function openRoom(id) {
     }
   }
   markRoomVisited(id);
+  const prevOpened = openedRoomId;
   selectedRoomId = id;
   openedRoomId = id;
+  syncOpenedRoomDoors(prevOpened, id);
   setEditTool("token", false);
   setPanelTab("rooms");
   redraw();
@@ -1573,14 +1782,30 @@ function openRoom(id) {
 
 /**
  * @param {'map'|'rooms'|'party'} id
+ * @param {boolean} [fromObstaclePanel]
  */
-function setPanelTab(id) {
+function setPanelTab(id, fromObstaclePanel = false) {
   if (id === "map" && !canRegenerateMap(currentAccount)) {
     id = isMaster(currentAccount) ? "rooms" : "party";
   }
   if (id === "rooms" && !isMaster(currentAccount)) {
     id = "party";
   }
+
+  if (!fromObstaclePanel && editTool === "obstacle") {
+    editTool = "token";
+    document.querySelectorAll(".tool-btn[data-tool]").forEach((b) => {
+      b.classList.toggle("is-active", b.getAttribute("data-tool") === "token");
+    });
+    updateCursor();
+    updateStatus();
+  }
+
+  if (panelObstacles) {
+    panelObstacles.hidden = true;
+    panelObstacles.classList.remove("is-active");
+  }
+
   const pages = {
     map: document.getElementById("panelMap"),
     rooms: document.getElementById("panelRooms"),
@@ -1632,7 +1857,9 @@ function updatePanelCounts() {
 }
 
 function closeRoom() {
+  const prevOpened = openedRoomId;
   openedRoomId = null;
+  syncOpenedRoomDoors(prevOpened, null);
   setEditTool("token", false);
   redraw();
   showToast("Общая карта");
@@ -1768,7 +1995,10 @@ function renderRoomList() {
     }
     const pills = [
       room.role === "start" ? `<span class="pill lvl">вход</span>` : "",
-      room.role === "end" ? `<span class="pill danger">тупик</span>` : "",
+      room.role === "end" ? `<span class="pill danger">босс</span>` : "",
+      room.shape && room.shape !== "rect"
+        ? `<span class="pill">${escapeHtml(ROOM_SHAPE_LABELS[room.shape] || room.shape)}</span>`
+        : "",
       unlocked
         ? `<span class="pill ok">открыта</span>`
         : `<span class="pill danger">закрыта</span>`,
@@ -2187,7 +2417,7 @@ async function openBestiary() {
   try {
     bestiaryData = await loadBestiary();
     if (bestiaryStatus) {
-      bestiaryStatus.textContent = `В базе ${bestiaryData.length} существ. Данные PF2e · ссылки на pf2.ru и Archives of Nethys.`;
+      bestiaryStatus.textContent = `В базе ${bestiaryData.length} существ. Названия на русском (pf2.ru).`;
     }
     renderBestiaryList();
     bestiaryQuery?.focus();
@@ -2238,6 +2468,7 @@ function renderBestiaryList() {
       <span class="bestiary-lvl">${entry.level}</span>
       <div>
         <strong>${escapeHtml(entry.name)}</strong>
+        ${entry.nameEn && entry.nameEn !== entry.name ? `<span class="meta en-name">${escapeHtml(entry.nameEn)}</span>` : ""}
         <span class="meta">${escapeHtml(typeName)} · КЗ ${entry.ac} · ОЗ ${entry.hp}</span>
       </div>
     `;
@@ -2262,6 +2493,7 @@ function renderBestiaryDetail(entry) {
 
   bestiaryDetail.innerHTML = `
     <h3>${escapeHtml(entry.name)}</h3>
+    ${entry.nameEn && entry.nameEn !== entry.name ? `<p class="hint en-name">${escapeHtml(entry.nameEn)}</p>` : ""}
     <p class="hint">Уровень ${entry.level} · ${escapeHtml(typeName)} · ${escapeHtml(sizeName)} · ${escapeHtml(entry.source || "PF2e")}</p>
     <div class="bestiary-stats">
       <div class="bestiary-stat"><em>ОЗ</em><strong>${entry.hp}</strong></div>
@@ -2330,6 +2562,8 @@ function redraw() {
     visibleCells,
     visitedRoomIds: mapRole === "player" ? visitedRoomIds : null,
     selectedActorId: selectedActor?.id ?? null,
+    obstacleVariants,
+    doorStates,
   });
   renderRoomList();
   updateRoomChrome();

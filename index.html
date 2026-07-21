@@ -97,6 +97,15 @@
           </div>
         </section>
 
+        <section class="panel-page" id="panelObstacles" role="tabpanel" hidden>
+          <div class="panel-section">
+            <p class="panel-label">Препятствия</p>
+            <p class="panel-note" id="obstacleRoomName">Выберите тип и кликайте по полу на карте</p>
+            <div class="obstacle-picker" id="obstaclePicker" role="radiogroup" aria-label="Тип препятствия"></div>
+            <p class="panel-note obstacle-hint">Клик по полу — поставить. По препятствию — убрать.</p>
+          </div>
+        </section>
+
         <section class="panel-page" id="panelParty" role="tabpanel" hidden>
           <div class="panel-section">
             <div class="party-switch" role="tablist" aria-label="Отряд">
@@ -154,7 +163,6 @@
         <div class="tool-toggle" id="editTools" hidden role="group" aria-label="Инструмент">
           <button type="button" class="tool-btn is-active" data-tool="token" id="toolToken">Жетоны</button>
           <button type="button" class="tool-btn" data-tool="obstacle" id="toolObstacle">Препятствия</button>
-          <button type="button" class="btn ghost tool-clear" id="btnClearObstacles" title="Очистить препятствия в комнате">Очистить</button>
         </div>
 
         <button type="button" class="btn ghost" id="btnToolbarBack" hidden>Назад</button>
@@ -587,6 +595,6 @@
     </form>
   </dialog>
 
-  <script type="module" src="js/main.js"></script>
+  <script type="module" src="js/main.js?v=5"></script>
 </body>
 </html>

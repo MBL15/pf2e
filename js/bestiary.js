@@ -4,6 +4,7 @@ import { makeEnemy } from "./enemies.js";
 /** @typedef {Object} BestiaryEntry
  * @property {string} id
  * @property {string} name
+ * @property {string} [nameEn]
  * @property {number} level
  * @property {number} hp
  * @property {number} ac
@@ -63,14 +64,14 @@ export function filterBestiary(list, filters = {}) {
     if (levelMin != null && e.level < levelMin) return false;
     if (levelMax != null && e.level > levelMax) return false;
     if (!q) return true;
-    const hay = `${e.name} ${(e.traits || []).join(" ")} ${e.source}`.toLowerCase();
+    const hay = `${e.name} ${e.nameEn || ""} ${(e.traits || []).join(" ")} ${e.source}`.toLowerCase();
     return hay.includes(q);
   });
 
   if (filters.sort === "name") {
-    out = [...out].sort((a, b) => a.name.localeCompare(b.name, "en"));
+    out = [...out].sort((a, b) => a.name.localeCompare(b.name, "ru"));
   } else {
-    out = [...out].sort((a, b) => a.level - b.level || a.name.localeCompare(b.name, "en"));
+    out = [...out].sort((a, b) => a.level - b.level || a.name.localeCompare(b.name, "ru"));
   }
   return out;
 }

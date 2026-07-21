@@ -107,6 +107,7 @@ for m in data:
         {
             "id": slugify(name),
             "name": name,
+            "nameEn": name,
             "level": level,
             "hp": int(m.get("hp") or 1),
             "ac": int(m.get("ac") or 10),
