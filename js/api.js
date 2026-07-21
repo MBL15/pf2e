@@ -1,9 +1,11 @@
 /**
- * Клиент API → SQLite на сервере.
- * Сессия аккаунта остаётся в localStorage (привязка к браузеру).
+ * Клиент API → Python-сервер + SQLite.
+ * Сессия аккаунта — HttpOnly-cookie на сервере.
  */
 
 const API = "/api";
+
+const fetchOpts = { credentials: "same-origin" };
 
 /**
  * @param {string} path
@@ -11,6 +13,7 @@ const API = "/api";
  */
 async function request(path, init = {}) {
   const res = await fetch(`${API}${path}`, {
+    ...fetchOpts,
     headers: { "Content-Type": "application/json", ...(init.headers || {}) },
     ...init,
   });
@@ -51,9 +54,55 @@ export async function putState(partial) {
   return request("/state", { method: "PUT", body: JSON.stringify(partial) });
 }
 
-/** @param {unknown} accounts */
-export async function putAccounts(accounts) {
-  return request("/accounts", { method: "PUT", body: JSON.stringify({ accounts }) });
+/** @returns {Promise<import('./accounts.js').Account[]>} */
+export async function fetchAccounts() {
+  const data = await request("/accounts");
+  return /** @type {import('./accounts.js').Account[]} */ (data.accounts || []);
+}
+
+/** @returns {Promise<import('./accounts.js').Account | null>} */
+export async function fetchMe() {
+  try {
+    const data = await request("/accounts/me");
+    return /** @type {import('./accounts.js').Account} */ (data.account);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * @param {{ name: string, role: 'master'|'player', characterId?: string|null, pin?: string }} payload
+ * @returns {Promise<import('./accounts.js').Account>}
+ */
+export async function createAccount(payload) {
+  const data = await request("/accounts", { method: "POST", body: JSON.stringify(payload) });
+  return /** @type {import('./accounts.js').Account} */ (data.account);
+}
+
+/**
+ * @param {string} accountId
+ * @param {string} pin
+ * @returns {Promise<import('./accounts.js').Account>}
+ */
+export async function loginAccount(accountId, pin) {
+  const data = await request("/accounts/login", {
+    method: "POST",
+    body: JSON.stringify({ accountId, pin }),
+  });
+  return /** @type {import('./accounts.js').Account} */ (data.account);
+}
+
+/** @returns {Promise<void>} */
+export async function logoutAccount() {
+  await request("/accounts/logout", { method: "POST", body: "{}" });
+}
+
+/** @param {string} characterId */
+export async function unlinkCharacterFromAccountsApi(characterId) {
+  await request("/accounts/unlink-character", {
+    method: "POST",
+    body: JSON.stringify({ characterId }),
+  });
 }
 
 /** @param {unknown} characters */

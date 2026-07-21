@@ -117,9 +117,9 @@
             </div>
 
             <div class="party-pane" id="partyEnemies" hidden>
-              <div class="panel-toolbar">
+              <div class="panel-toolbar enemy-toolbar">
+                <button type="button" class="btn small primary" id="btnNewEnemy">Добавить врага</button>
                 <button type="button" class="btn small" id="btnBestiary">Бестиарий</button>
-                <button type="button" class="btn small" id="btnNewEnemy">+ Враг</button>
               </div>
               <ul class="entity-list" id="enemyList"></ul>
               <button type="button" class="btn ghost btn-block" id="btnClearTokens">Убрать жетоны</button>
@@ -202,7 +202,7 @@
         <a href="https://www.pf2.ru/monsters" target="_blank" rel="noopener noreferrer">монстры</a>.
         В приложении есть встроенный бестиарий (~1900 существ).
       </p>
-        <p class="hint">Клавиши: <kbd>WASD</kbd> / стрелки — ход выбранного жетона, <kbd>Space</kbd> — снять выделение, <kbd>F5</kbd> — сохранить карту в SQLite и обновить страницу, <kbd>Esc</kbd> — назад, <kbd>1</kbd>/<kbd>2</kbd> — жетоны / препятствия, в изометрии <kbd>Q</kbd>/<kbd>E</kbd> — поворот. Масштаб: кнопки +/−, колёсико мыши; средняя кнопка — сдвиг карты. Запуск: <kbd>npm start</kbd> → http://127.0.0.1:8765</p>
+        <p class="hint">Клавиши: <kbd>WASD</kbd> / стрелки — ход выбранного жетона, <kbd>Space</kbd> — снять выделение, <kbd>F5</kbd> — сохранить карту в SQLite и обновить страницу, <kbd>Esc</kbd> — назад, <kbd>1</kbd>/<kbd>2</kbd> — жетоны / препятствия, в изометрии <kbd>Q</kbd>/<kbd>E</kbd> — поворот. Масштаб: кнопки +/−, колёсико мыши. Сдвиг карты: зажать ЛКМ и тянуть (или средняя кнопка). Запуск: <kbd>python -m server.main</kbd> → http://127.0.0.1:8765</p>
       <button type="button" class="btn primary btn-block" id="btnCloseHelp">Понятно</button>
     </div>
   </dialog>
@@ -337,9 +337,9 @@
             <div class="adv-pane profile-pane" id="advPaneCombat" role="tabpanel" hidden>
               <p class="profile-help">Боевые параметры. Можно пересчитать по правилам PF2e.</p>
               <div class="adv-stat-list compact">
-                <label class="adv-stat-row"><span>ПЗ текущие</span><input type="number" id="charHp" min="0" max="9999" value="20" /></label>
-                <label class="adv-stat-row"><span>ПЗ макс.</span><input type="number" id="charHpMax" min="1" max="9999" value="20" /></label>
-                <label class="adv-stat-row"><span>КБ</span><input type="number" id="charAc" min="1" max="50" value="15" /></label>
+                <label class="adv-stat-row"><span title="очки здоровья">ОЗ текущие</span><input type="number" id="charHp" min="0" max="9999" value="20" /></label>
+                <label class="adv-stat-row"><span title="очки здоровья">ОЗ макс.</span><input type="number" id="charHpMax" min="1" max="9999" value="20" /></label>
+                <label class="adv-stat-row"><span title="класс брони">КЗ</span><input type="number" id="charAc" min="1" max="50" value="15" /></label>
                 <label class="adv-stat-row"><span>Стойкость</span><input type="number" id="charFort" min="-5" max="40" value="5" /></label>
                 <label class="adv-stat-row"><span>Реакция</span><input type="number" id="charRef" min="-5" max="40" value="5" /></label>
                 <label class="adv-stat-row"><span>Воля</span><input type="number" id="charWill" min="-5" max="40" value="5" /></label>
@@ -355,7 +355,7 @@
 
             <div class="adv-pane profile-pane" id="advPaneSkills" role="tabpanel" hidden>
               <p class="profile-help">Значение навыка от <strong>0</strong> до <strong>20</strong>.</p>
-              <div class="adv-skill-list" id="charSkillList"></div>
+              <div class="adv-stat-list" id="charSkillList"></div>
             </div>
           </div>
         </section>
@@ -441,15 +441,15 @@
 
       <div class="form-row three">
         <label class="field">
-          <span>ПЗ</span>
+          <span title="очки здоровья">ОЗ</span>
           <input type="number" id="enemyHp" min="0" max="9999" value="20" />
         </label>
         <label class="field">
-          <span>ПЗ макс.</span>
+          <span title="очки здоровья">ОЗ макс.</span>
           <input type="number" id="enemyHpMax" min="1" max="9999" value="20" />
         </label>
         <label class="field">
-          <span>КБ</span>
+          <span title="класс брони">КЗ</span>
           <input type="number" id="enemyAc" min="1" max="50" value="16" />
         </label>
       </div>

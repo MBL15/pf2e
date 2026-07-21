@@ -5,7 +5,8 @@
   "type": "module",
   "description": "Генератор карт Pathfinder 2e с SQLite",
   "scripts": {
-    "start": "node server/index.js",
-    "dev": "node --watch server/index.js"
+    "start": "python -m server.main",
+    "dev": "python -m server.main",
+    "start:node": "node server/index.js"
   }
 }

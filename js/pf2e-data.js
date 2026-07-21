@@ -123,7 +123,7 @@ export const BACKGROUNDS = {
 
 /**
  * Классы Player Core / распространённые.
- * hp — кости ПЗ за уровень; key — ключевая характеристика.
+ * hp — кости ОЗ за уровень; key — ключевая характеристика.
  */
 export const CLASSES = {
   fighter: { id: "fighter", name: "Воин", hp: 10, key: "str", perception: "expert", fort: "expert", ref: "expert", will: "trained", url: "https://www.pf2.ru/classes/fighter" },
@@ -179,9 +179,9 @@ export const PROF_RANKS = [
  * Полный перечень — на pf2.ru.
  */
 export const FEATS = [
-  { id: "toughness", name: "Крепость", type: "general", level: 1, desc: "+1 ПЗ за уровень" },
+  { id: "toughness", name: "Крепость", type: "general", level: 1, desc: "+1 ОЗ за уровень" },
   { id: "fleet", name: "Быстрый", type: "general", level: 1, desc: "+5 футов к скорости" },
-  { id: "diehard", name: "Живучий", type: "general", level: 1, desc: "Умираете на −макс.ПЗ, не −0" },
+  { id: "diehard", name: "Живучий", type: "general", level: 1, desc: "Умираете на −макс.ОЗ, не −0" },
   { id: "shield_block", name: "Блок щитом", type: "general", level: 1, desc: "Реакция: снизить урон щитом" },
   { id: "armor_prof", name: "Лёгкая броня", type: "general", level: 1, desc: "Владение лёгкой бронёй" },
   { id: "weapon_prof", name: "Боевое оружие", type: "general", level: 1, desc: "Владение боевым оружием" },
@@ -314,7 +314,7 @@ export function suggestAbilityMods(ancestryId, backgroundId, classId) {
 }
 
 /**
- * ПЗ по формуле PF2e: ПЗ народа + (ПЗ класса + Вын) × уровень
+ * ОЗ по формуле PF2e: ОЗ народа + (ОЗ класса + Вын) × уровень
  * @param {object} opts
  */
 export function calcPcHp({ ancestryId, classId, level, conMod }) {
@@ -327,7 +327,7 @@ export function calcPcHp({ ancestryId, classId, level, conMod }) {
 }
 
 /**
- * Черновая КБ: 10 + Лов + бонус владения бронёй (обучен) + уровень.
+ * Черновой КЗ: 10 + Лов + бонус владения бронёй (обучен) + уровень.
  * Пользователь может править вручную.
  */
 export function calcPcAc({ level, dexMod }) {
@@ -355,7 +355,8 @@ export function calcPcSaves({ classId, level, conMod, dexMod, wisMod }) {
  * @param {number|string} level
  */
 export function getCreatureBaseline(level) {
-  const key = String(Math.max(-1, Math.min(20, Number(level))));
+  const n = Number(level);
+  const key = String(Math.max(-1, Math.min(20, Number.isFinite(n) ? n : 1)));
   return CREATURE_BASELINES[key] || CREATURE_BASELINES["1"];
 }
 

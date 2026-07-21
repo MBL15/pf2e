@@ -17,10 +17,9 @@ import {
 import {
   hydrateAccounts,
   readLegacyAccounts,
-  saveAccounts,
-  makeAccount,
-  getCurrentAccount,
-  setSessionAccountId,
+  loadAccounts,
+  createAccount,
+  loginAsAccount,
   canEditCharacter,
   canCreateCharacter,
   canDeleteCharacter,
@@ -28,11 +27,11 @@ import {
   canRegenerateMap,
   canSwitchMapRole,
   unlinkCharacterFromAccounts,
-  checkPin,
+  accountNeedsPin,
   isMaster,
   isPlayer,
 } from "./accounts.js";
-import { pingApi, fetchState, putState, putMap } from "./api.js";
+import { pingApi, fetchState, putState, putMap, fetchMe } from "./api.js";
 import {
   loadBestiary,
   filterBestiary,
@@ -293,36 +292,57 @@ function buildFeatList() {
 function buildSkillList() {
   const wrap = document.getElementById("charSkillList");
   if (!wrap) return;
-  const options = Array.from({ length: 21 }, (_, i) => `<option value="${i}">${i}</option>`).join("");
   wrap.innerHTML = SKILLS.map(
     (s) => `
-    <div class="adv-skill-row" data-skill="${s.id}">
-      <span class="adv-skill-name">${s.name}</span>
-      <label class="adv-skill-pick">
-        <span class="visually-hidden">Значение ${s.name}</span>
-        <select class="adv-skill-value" data-skill-value="${s.id}" aria-label="${s.name}">
-          ${options}
-        </select>
-      </label>
+    <div class="adv-stat-row skill-row" data-skill-row="${s.id}">
+      <span class="adv-stat-name">${s.name}</span>
+      <div class="adv-stepper">
+        <button type="button" class="adv-step" data-skill-dec="${s.id}" aria-label="−">−</button>
+        <input type="number" data-skill="${s.id}" min="0" max="20" value="0" />
+        <button type="button" class="adv-step" data-skill-inc="${s.id}" aria-label="+">+</button>
+      </div>
     </div>`
   ).join("");
-  wrap.querySelectorAll("[data-skill-value]").forEach((sel) => {
-    sel.addEventListener("change", () => {
-      const id = /** @type {HTMLSelectElement} */ (sel).dataset.skillValue || "";
-      const n = Number(/** @type {HTMLSelectElement} */ (sel).value);
+  wrap.querySelectorAll("[data-skill-dec]").forEach((btn) => {
+    btn.addEventListener("click", () => nudgeSkill(/** @type {HTMLElement} */ (btn).dataset.skillDec || "", -1));
+  });
+  wrap.querySelectorAll("[data-skill-inc]").forEach((btn) => {
+    btn.addEventListener("click", () => nudgeSkill(/** @type {HTMLElement} */ (btn).dataset.skillInc || "", 1));
+  });
+  wrap.querySelectorAll("[data-skill]").forEach((input) => {
+    input.addEventListener("change", () => {
+      const id = /** @type {HTMLInputElement} */ (input).dataset.skill || "";
+      const n = Number(/** @type {HTMLInputElement} */ (input).value);
       draftSkills[id] = Number.isFinite(n) ? Math.max(0, Math.min(20, Math.round(n))) : 0;
       renderSkillRanks();
     });
   });
 }
 
+/**
+ * @param {string} id
+ * @param {number} delta
+ */
+function nudgeSkill(id, delta) {
+  const input = /** @type {HTMLInputElement | null} */ (
+    document.querySelector(`#charSkillList [data-skill="${id}"]`)
+  );
+  if (!input) return;
+  const next = Math.max(0, Math.min(20, (Number(input.value) || 0) + delta));
+  input.value = String(next);
+  draftSkills[id] = next;
+  renderSkillRanks();
+}
+
 function renderSkillRanks() {
   for (const s of SKILLS) {
     const value = Math.max(0, Math.min(20, Number(draftSkills[s.id]) || 0));
     draftSkills[s.id] = value;
-    const sel = /** @type {HTMLSelectElement | null} */ (document.querySelector(`[data-skill-value="${s.id}"]`));
-    const row = document.querySelector(`[data-skill="${s.id}"]`);
-    if (sel && sel.value !== String(value)) sel.value = String(value);
+    const input = /** @type {HTMLInputElement | null} */ (
+      document.querySelector(`#charSkillList [data-skill="${s.id}"]`)
+    );
+    const row = document.querySelector(`#charSkillList [data-skill-row="${s.id}"]`);
+    if (input && input.value !== String(value)) input.value = String(value);
     row?.classList.toggle("is-trained", value > 0);
   }
 }
@@ -747,7 +767,7 @@ document.getElementById("btnCancelPin")?.addEventListener("click", () => {
 });
 
 accountRoleSelect?.addEventListener("change", syncAccountCreateFields);
-accountCreateForm?.addEventListener("submit", (e) => {
+accountCreateForm?.addEventListener("submit", async (e) => {
   e.preventDefault();
   const name = /** @type {HTMLInputElement} */ (document.getElementById("accountName")).value.trim();
   const role = /** @type {'master'|'player'} */ (accountRoleSelect.value || "player");
@@ -758,20 +778,23 @@ accountCreateForm?.addEventListener("submit", (e) => {
     return;
   }
   if (role === "master") characterId = null;
-  const account = makeAccount({ name, role, characterId, pin });
-  accounts.push(account);
-  saveAccounts(accounts);
-  loginAs(account.id, pin, true);
-  accountCreateForm.reset();
-  syncAccountCreateFields();
-  accountDialog?.close();
+  try {
+    const account = await createAccount({ name, role, characterId, pin });
+    accounts = await loadAccounts();
+    await loginAs(account.id, pin, true);
+    accountCreateForm.reset();
+    syncAccountCreateFields();
+    accountDialog?.close();
+  } catch {
+    showToast("Не удалось создать аккаунт");
+  }
 });
 
-accountPinForm?.addEventListener("submit", (e) => {
+accountPinForm?.addEventListener("submit", async (e) => {
   e.preventDefault();
   if (!pendingPinAccountId) return;
   const pin = accountPinInput?.value || "";
-  const ok = loginAs(pendingPinAccountId, pin, true);
+  const ok = await loginAs(pendingPinAccountId, pin, true);
   if (ok) {
     pendingPinAccountId = null;
     accountPinDialog?.close();
@@ -932,7 +955,7 @@ document.getElementById("btnRecalcChar")?.addEventListener("click", () => {
   const draft = readCharForm(editingCharId);
   const calc = recalculateCharacter(draft);
   fillCharForm(calc);
-  showToast("ПЗ, КБ и спасброски пересчитаны");
+  showToast("ОЗ, КЗ и спасброски пересчитаны");
 });
 
 document.getElementById("btnRecalcEnemy")?.addEventListener("click", () => {
@@ -990,15 +1013,17 @@ btnDeleteChar.addEventListener("click", () => {
   const removed = characters.find((c) => c.id === editingCharId);
   characters = characters.filter((c) => c.id !== editingCharId);
   tokens = tokens.filter((t) => !(t.actorType === "pc" && t.actorId === editingCharId));
-  accounts = unlinkCharacterFromAccounts(accounts, editingCharId);
-  currentAccount = getCurrentAccount(accounts);
+  void unlinkCharacterFromAccounts(editingCharId).then(async () => {
+    accounts = await loadAccounts();
+    currentAccount = await fetchMe();
+    updateAccountUi();
+  });
   if (selectedActor?.type === "pc" && selectedActor.id === editingCharId) {
     selectedActor = characters[0] ? { type: "pc", id: characters[0].id } : enemies[0] ? { type: "enemy", id: enemies[0].id } : null;
   }
   saveCharacters(characters);
   renderCharList();
   renderEnemyList();
-  updateAccountUi();
   redraw();
   charDialog.close();
   showToast(removed ? `${removed.name} удалён` : "Персонаж удалён");
@@ -1136,14 +1161,15 @@ function onMapWheel(e) {
 canvas.addEventListener("wheel", onMapWheel, { passive: false });
 canvasWrap?.addEventListener("wheel", onMapWheel, { passive: false });
 
+const MAP_PAN_THRESHOLD = 4;
+
 canvas.addEventListener("pointerdown", (e) => {
-  if (e.button !== 1) return;
-  e.preventDefault();
+  if (e.button !== 0 && e.button !== 1) return;
+  if (e.button === 1) e.preventDefault();
   mapPanning = true;
   mapDidPan = false;
   panLastX = e.clientX;
   panLastY = e.clientY;
-  canvas.classList.add("cursor-pan");
   canvas.setPointerCapture(e.pointerId);
 });
 
@@ -1151,7 +1177,11 @@ canvas.addEventListener("pointermove", (e) => {
   if (!mapPanning) return;
   const dx = e.clientX - panLastX;
   const dy = e.clientY - panLastY;
-  if (Math.abs(dx) + Math.abs(dy) > 2) mapDidPan = true;
+  if (!mapDidPan) {
+    if (Math.abs(dx) + Math.abs(dy) < MAP_PAN_THRESHOLD) return;
+    mapDidPan = true;
+    canvas.classList.add("cursor-pan");
+  }
   mapPanX += dx;
   mapPanY += dy;
   panLastX = e.clientX;
@@ -1167,6 +1197,12 @@ function endMapPan(e) {
     canvas.releasePointerCapture(e.pointerId);
   } catch {
     /* ignore */
+  }
+  // click идёт сразу после pointerup — даём ему увидеть mapDidPan, затем сбрасываем
+  if (mapDidPan) {
+    setTimeout(() => {
+      mapDidPan = false;
+    }, 0);
   }
 }
 
@@ -1540,7 +1576,10 @@ function openRoom(id) {
  */
 function setPanelTab(id) {
   if (id === "map" && !canRegenerateMap(currentAccount)) {
-    id = "rooms";
+    id = isMaster(currentAccount) ? "rooms" : "party";
+  }
+  if (id === "rooms" && !isMaster(currentAccount)) {
+    id = "party";
   }
   const pages = {
     map: document.getElementById("panelMap"),
@@ -1747,6 +1786,12 @@ function renderRoomList() {
           </button>`
         : "";
 
+    const openBtn = master
+      ? `<button type="button" class="entity-action${isOpen ? "" : !unlocked ? "" : " primary"}" data-open-room="${room.id}">
+          ${isOpen ? "Закрыть вид" : "Открыть"}
+        </button>`
+      : "";
+
     li.innerHTML = `
       <span class="entity-avatar num">${room.id + 1}</span>
       <div class="entity-info">
@@ -1755,9 +1800,7 @@ function renderRoomList() {
       </div>
       <div class="entity-actions">
         ${unlockBtn}
-        <button type="button" class="entity-action${isOpen ? "" : master && !unlocked ? "" : " primary"}" data-open-room="${room.id}">
-          ${isOpen ? "Закрыть вид" : "Открыть"}
-        </button>
+        ${openBtn}
       </div>
     `;
     li.addEventListener("click", (e) => {
@@ -1846,7 +1889,7 @@ function applyCharEditorMode() {
     /** @type {HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement} */ (el).disabled = charViewOnly;
   });
 
-  charForm.querySelectorAll(".adv-step, [data-ability-dec], [data-ability-inc]").forEach((el) => {
+  charForm.querySelectorAll(".adv-step, [data-ability-dec], [data-ability-inc], [data-skill-dec], [data-skill-inc]").forEach((el) => {
     /** @type {HTMLButtonElement} */ (el).disabled = charViewOnly;
   });
 
@@ -2065,8 +2108,8 @@ function renderCharList() {
         <span class="entity-sub">${escapeHtml(ch.ancestryName)} · ${escapeHtml(ch.className)}${owner ? ` · ${escapeHtml(owner.name)}` : ""}</span>
         <div class="entity-stats">
           <span class="pill lvl">Ур. ${ch.level}</span>
-          <span class="pill">ПЗ ${ch.hp}/${ch.hpMax}</span>
-          <span class="pill">КБ ${ch.ac}</span>
+          <span class="pill">ОЗ ${ch.hp}/${ch.hpMax}</span>
+          <span class="pill">КЗ ${ch.ac}</span>
         </div>
       </div>
       ${
@@ -2114,8 +2157,8 @@ function renderEnemyList() {
         <span class="entity-sub">${escapeHtml(en.creatureTypeName)}</span>
         <div class="entity-stats">
           <span class="pill danger">Ур. ${en.level}</span>
-          <span class="pill">ПЗ ${en.hp}/${en.hpMax}</span>
-          <span class="pill">КБ ${en.ac}</span>
+          <span class="pill">ОЗ ${en.hp}/${en.hpMax}</span>
+          <span class="pill">КЗ ${en.ac}</span>
           <span class="pill">${formatMod(en.attackBonus)}</span>
         </div>
       </div>
@@ -2195,7 +2238,7 @@ function renderBestiaryList() {
       <span class="bestiary-lvl">${entry.level}</span>
       <div>
         <strong>${escapeHtml(entry.name)}</strong>
-        <span class="meta">${escapeHtml(typeName)} · КБ ${entry.ac} · ПЗ ${entry.hp}</span>
+        <span class="meta">${escapeHtml(typeName)} · КЗ ${entry.ac} · ОЗ ${entry.hp}</span>
       </div>
     `;
     btn.addEventListener("click", () => {
@@ -2221,8 +2264,8 @@ function renderBestiaryDetail(entry) {
     <h3>${escapeHtml(entry.name)}</h3>
     <p class="hint">Уровень ${entry.level} · ${escapeHtml(typeName)} · ${escapeHtml(sizeName)} · ${escapeHtml(entry.source || "PF2e")}</p>
     <div class="bestiary-stats">
-      <div class="bestiary-stat"><em>ПЗ</em><strong>${entry.hp}</strong></div>
-      <div class="bestiary-stat"><em>КБ</em><strong>${entry.ac}</strong></div>
+      <div class="bestiary-stat"><em>ОЗ</em><strong>${entry.hp}</strong></div>
+      <div class="bestiary-stat"><em>КЗ</em><strong>${entry.ac}</strong></div>
       <div class="bestiary-stat"><em>Восприятие</em><strong>${formatBestiaryMod(entry.perception)}</strong></div>
       <div class="bestiary-stat"><em>Стойкость</em><strong>${formatBestiaryMod(entry.fort)}</strong></div>
       <div class="bestiary-stat"><em>Реакция</em><strong>${formatBestiaryMod(entry.ref)}</strong></div>
@@ -2348,7 +2391,6 @@ function canControlActor(type, id) {
 }
 
 function updateAccountUi() {
-  currentAccount = getCurrentAccount(accounts);
   if (accountChipName) {
     accountChipName.textContent = currentAccount?.name || "Войти";
   }
@@ -2381,40 +2423,33 @@ function updateAccountUi() {
 
 function updatePermissionUi() {
   const btnNewChar = /** @type {HTMLButtonElement | null} */ (document.getElementById("btnNewChar"));
-  const btnNewEnemy = /** @type {HTMLButtonElement | null} */ (document.getElementById("btnNewEnemy"));
   const btnBestiary = /** @type {HTMLButtonElement | null} */ (document.getElementById("btnBestiary"));
   const btnGenerate = /** @type {HTMLButtonElement | null} */ (document.getElementById("btnGenerate"));
   const btnRegenToolbar = /** @type {HTMLButtonElement | null} */ (document.getElementById("btnRegenToolbar"));
   const mapGenControls = document.getElementById("mapGenControls");
   const mapPlayerNote = document.getElementById("mapPlayerNote");
   const master = isMaster(currentAccount);
+  const player = isPlayer(currentAccount);
   const canGen = canRegenerateMap(currentAccount);
 
+  document.documentElement.classList.toggle("is-player", !!currentAccount && !master);
+
   if (btnNewChar) btnNewChar.hidden = !canCreateCharacter(currentAccount);
-  if (btnNewEnemy) btnNewEnemy.hidden = !canManageEnemies(currentAccount);
   if (btnBestiary) btnBestiary.hidden = !canManageEnemies(currentAccount);
   if (btnGenerate) btnGenerate.hidden = !canGen;
   if (btnRegenToolbar) btnRegenToolbar.hidden = !canGen;
   if (mapGenControls) mapGenControls.hidden = !canGen;
   if (mapPlayerNote) mapPlayerNote.hidden = canGen;
 
-  document.querySelectorAll('.panel-tab[data-panel="map"]').forEach((btn) => {
-    /** @type {HTMLElement} */ (btn).hidden = !canGen;
-  });
-
-  if (!canGen) {
+  if (player) {
+    setPanelTab("party");
+  } else if (!canGen) {
     const mapTab = document.querySelector('.panel-tab[data-panel="map"].is-active');
     const mapPage = document.getElementById("panelMap");
     if (mapTab || (mapPage && !mapPage.hidden && mapPage.classList.contains("is-active"))) {
       setPanelTab("rooms");
     }
   }
-
-  document.querySelectorAll(".view-btn[data-role]").forEach((b) => {
-    const el = /** @type {HTMLButtonElement} */ (b);
-    el.disabled = !canSwitchMapRole(currentAccount);
-    el.title = master ? el.title || "" : "Только аккаунт мастера";
-  });
 
   const toolObstacle = document.getElementById("toolObstacle");
   if (toolObstacle) {
@@ -2437,11 +2472,22 @@ function updatePermissionUi() {
 }
 
 function openAccountDialog() {
-  fillAccountCharacterSelect();
-  syncAccountCreateFields();
-  renderAccountList();
-  updateAccountUi();
-  accountDialog?.showModal();
+  void loadAccounts()
+    .then((list) => {
+      accounts = list;
+      fillAccountCharacterSelect();
+      syncAccountCreateFields();
+      renderAccountList();
+      updateAccountUi();
+      accountDialog?.showModal();
+    })
+    .catch(() => {
+      fillAccountCharacterSelect();
+      syncAccountCreateFields();
+      renderAccountList();
+      updateAccountUi();
+      accountDialog?.showModal();
+    });
 }
 
 function syncAccountCreateFields() {
@@ -2485,7 +2531,7 @@ function renderAccountList() {
       <span class="entity-avatar num">${acc.role === "master" ? "М" : "И"}</span>
       <div class="entity-info">
         <strong>${escapeHtml(acc.name)}</strong>
-        <span class="entity-sub">${acc.role === "master" ? "Мастер" : ch ? `Игрок · ${escapeHtml(ch.name)}` : "Игрок · без персонажа"}${acc.pin ? " · PIN" : ""}</span>
+        <span class="entity-sub">${acc.role === "master" ? "Мастер" : ch ? `Игрок · ${escapeHtml(ch.name)}` : "Игрок · без персонажа"}${accountNeedsPin(acc) ? " · PIN" : ""}</span>
       </div>
       <button type="button" class="entity-action${active ? "" : " primary"}" data-login="${acc.id}">
         ${active ? "Текущий" : "Войти"}
@@ -2511,7 +2557,7 @@ function renderAccountList() {
 function tryLoginAccount(accountId) {
   const acc = accounts.find((a) => a.id === accountId);
   if (!acc) return;
-  if (acc.pin) {
+  if (accountNeedsPin(acc)) {
     pendingPinAccountId = accountId;
     if (accountPinLabel) accountPinLabel.textContent = `PIN для «${acc.name}»`;
     if (accountPinInput) accountPinInput.value = "";
@@ -2519,27 +2565,26 @@ function tryLoginAccount(accountId) {
     accountPinInput?.focus();
     return;
   }
-  loginAs(accountId, "", true);
-  accountDialog?.close();
+  void loginAs(accountId, "", true).then((ok) => {
+    if (ok) accountDialog?.close();
+  });
 }
 
 /**
  * @param {string} accountId
  * @param {string} pin
  * @param {boolean} [announce]
- * @returns {boolean}
+ * @returns {Promise<boolean>}
  */
-function loginAs(accountId, pin, announce = true) {
-  const acc = accounts.find((a) => a.id === accountId);
-  if (!acc) return false;
-  if (!checkPin(acc, pin)) {
+async function loginAs(accountId, pin, announce = true) {
+  try {
+    currentAccount = await loginAsAccount(accountId, pin);
+    applyAccountSession(announce);
+    return true;
+  } catch {
     showToast("Неверный PIN");
     return false;
   }
-  setSessionAccountId(acc.id);
-  currentAccount = acc;
-  applyAccountSession(announce);
-  return true;
 }
 
 /**
@@ -2615,10 +2660,10 @@ async function boot() {
   setStatus("Подключение к SQLite…");
   const ok = await pingApi();
   if (!ok) {
-    setStatus("Сервер не запущен. Выполните: npm start");
-    showToast("Нет связи с сервером SQLite (npm start)");
+    setStatus("Сервер не запущен. Выполните: python -m server.main");
+    showToast("Нет связи с сервером (python -m server.main)");
     stageHint?.classList.remove("is-hidden");
-    if (stageHint) stageHint.textContent = "Запустите сервер: npm start";
+    if (stageHint) stageHint.textContent = "Запустите сервер: python -m server.main";
     return;
   }
 
@@ -2628,12 +2673,12 @@ async function boot() {
   characters = hydrateCharacters(state.characters);
   enemies = hydrateEnemies(state.enemies);
   accounts = hydrateAccounts(state.accounts);
-  currentAccount = getCurrentAccount(accounts);
 
   // Первичная запись дефолтов в БД
   if (state.characters == null) await saveCharacters(characters);
   if (state.enemies == null) await saveEnemies(enemies);
-  if (state.accounts == null) await saveAccounts(accounts);
+
+  currentAccount = await fetchMe();
 
   selectedActor = characters[0] ? { type: "pc", id: characters[0].id } : null;
 
@@ -2641,9 +2686,11 @@ async function boot() {
   renderEnemyList();
   updateAccountUi();
 
-  if (!currentAccount) {
+  if (currentAccount) {
+    applyAccountSession(false);
+  } else {
     const master = accounts.find((a) => a.role === "master");
-    if (master) loginAs(master.id, "", false);
+    if (master) await loginAs(master.id, "", false);
   }
 
   const mapLoaded = state.map ? applyMapState(state.map) : loadMapStateFromLegacy();

@@ -387,6 +387,17 @@ body::before {
   box-shadow: 0 1px 2px rgba(21, 32, 25, 0.08);
 }
 
+.is-player .panel-tab[data-panel="map"],
+.is-player .panel-tab[data-panel="rooms"],
+.is-player .role-toggle,
+.is-player #btnRegenToolbar {
+  display: none !important;
+}
+
+.is-player .panel-tabs {
+  grid-template-columns: 1fr;
+}
+
 .tab-count {
   font-size: 0.68rem;
   font-weight: 700;
@@ -457,6 +468,15 @@ body::before {
   align-items: center;
   gap: 0.45rem;
   min-width: 0;
+}
+
+.enemy-toolbar {
+  flex-shrink: 0;
+}
+
+.enemy-toolbar #btnNewEnemy {
+  flex: 1 1 auto;
+  min-width: 8.5rem;
 }
 
 .stat-row {
@@ -1468,6 +1488,11 @@ input[type="color"] {
 .ability-row.is-flawed .adv-stat-name,
 .ability-row.is-flawed input {
   color: #8b2e22;
+}
+
+.skill-row.is-trained .adv-stat-name,
+.skill-row.is-trained input {
+  color: #1a6b3a;
 }
 
 .adv-stepper {
@@ -2808,13 +2833,21 @@ kbd {
   background: var(--danger-soft);
 }
 
-.profile-shell .adv-feat-list,
-.profile-shell .adv-skill-list {
+.profile-shell .skill-row.is-trained {
+  background: var(--accent-soft);
+}
+
+.profile-shell .adv-feat-list {
   max-height: 240px;
   overflow: auto;
   display: flex;
   flex-direction: column;
   gap: 0.4rem;
+}
+
+.profile-shell #charSkillList {
+  max-height: 240px;
+  overflow: auto;
 }
 
 .profile-shell.is-readonly .profile-photo-actions,
@@ -2824,10 +2857,6 @@ kbd {
 
 .profile-shell.is-readonly .adv-feat-item {
   cursor: default;
-}
-
-.profile-shell .adv-skill-row.is-trained {
-  background: var(--accent-soft);
 }
 
 .profile-shell .adv-feat-item:has(input:checked) {
