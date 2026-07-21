@@ -12,6 +12,7 @@ from .db import get_db, kv_get
 
 SESSION_COOKIE = "glubiny_session"
 SESSION_DAYS = 30
+PBKDF2_ITER = 200_000
 
 
 def _now_iso() -> str:
@@ -29,15 +30,25 @@ def _parse_iso(value: str) -> datetime:
 def hash_pin(pin: str, salt: str | None = None) -> tuple[str, str]:
     if salt is None:
         salt = secrets.token_hex(16)
-    digest = hashlib.sha256(f"{salt}:{pin}".encode("utf-8")).hexdigest()
-    return digest, salt
+    dk = hashlib.pbkdf2_hmac("sha256", str(pin or "").encode("utf-8"), salt.encode("utf-8"), PBKDF2_ITER)
+    return f"pbkdf2${PBKDF2_ITER}${dk.hex()}", salt
 
 
 def verify_pin(pin: str, pin_hash: str, pin_salt: str) -> bool:
     if not pin_hash:
         return not str(pin or "").strip()
-    digest, _ = hash_pin(str(pin or ""), pin_salt)
-    return secrets.compare_digest(digest, pin_hash)
+    pin = str(pin or "")
+    if pin_hash.startswith("pbkdf2$"):
+        try:
+            _, iter_s, hexhash = pin_hash.split("$", 2)
+            iters = int(iter_s)
+        except ValueError:
+            return False
+        dk = hashlib.pbkdf2_hmac("sha256", pin.encode("utf-8"), pin_salt.encode("utf-8"), iters)
+        return secrets.compare_digest(dk.hex(), hexhash)
+    # Обратная совместимость со старым sha256(salt:pin).
+    legacy = hashlib.sha256(f"{pin_salt}:{pin}".encode("utf-8")).hexdigest()
+    return secrets.compare_digest(legacy, pin_hash)
 
 
 def _row_to_public(row: Any) -> dict[str, Any]:

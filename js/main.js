@@ -2332,7 +2332,7 @@ function renderCharList() {
     const li = document.createElement("li");
     li.className = "entity-card" + (selected ? " is-selected" : "");
     li.innerHTML = `
-      <span class="entity-avatar" style="background:${ch.color}${ch.portrait ? `;background-image:url(${ch.portrait});background-size:cover;background-position:center` : ""}">${ch.portrait ? "" : ch.symbol}</span>
+      <span class="entity-avatar" style="background:${escapeHtml(ch.color)}${ch.portrait ? `;background-image:url(&quot;${escapeHtml(ch.portrait)}&quot;);background-size:cover;background-position:center` : ""}">${ch.portrait ? "" : escapeHtml(ch.symbol)}</span>
       <div class="entity-info">
         <strong>${escapeHtml(ch.name)}</strong>
         <span class="entity-sub">${escapeHtml(ch.ancestryName)} · ${escapeHtml(ch.className)}${owner ? ` · ${escapeHtml(owner.name)}` : ""}</span>
@@ -2381,7 +2381,7 @@ function renderEnemyList() {
     const li = document.createElement("li");
     li.className = "entity-card is-enemy" + (selected ? " is-selected" : "");
     li.innerHTML = `
-      <span class="entity-avatar" style="background:${en.color}">${en.symbol}</span>
+      <span class="entity-avatar" style="background:${escapeHtml(en.color)}">${escapeHtml(en.symbol)}</span>
       <div class="entity-info">
         <strong>${escapeHtml(en.name)}</strong>
         <span class="entity-sub">${escapeHtml(en.creatureTypeName)}</span>
@@ -2606,11 +2606,12 @@ function resetMapZoom() {
 }
 
 function escapeHtml(s) {
-  return s
+  return String(s ?? "")
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;");
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
 }
 
 /**
