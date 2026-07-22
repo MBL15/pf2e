@@ -35,6 +35,15 @@ export async function pingApi() {
   }
 }
 
+/** @returns {Promise<{ ok?: boolean, db?: string, features?: string[] } | null>} */
+export async function fetchHealth() {
+  try {
+    return await request("/health");
+  } catch {
+    return null;
+  }
+}
+
 /**
  * @returns {Promise<{
  *   accounts: unknown | null,
@@ -80,14 +89,26 @@ export async function createAccount(payload) {
 }
 
 /**
- * @param {string} accountId
- * @param {string} pin
+ * Публичная регистрация игрока (без входа мастера).
+ * @param {{ name: string, characterId?: string|null, pin?: string }} payload
  * @returns {Promise<import('./accounts.js').Account>}
  */
-export async function loginAccount(accountId, pin) {
+export async function registerAccount(payload) {
+  const data = await request("/accounts/register", {
+    method: "POST",
+    body: JSON.stringify({ ...payload, role: "player" }),
+  });
+  return /** @type {import('./accounts.js').Account} */ (data.account);
+}
+
+/**
+ * @param {{ accountId?: string, name?: string, pin: string }} credentials
+ * @returns {Promise<import('./accounts.js').Account>}
+ */
+export async function loginAccount(credentials) {
   const data = await request("/accounts/login", {
     method: "POST",
-    body: JSON.stringify({ accountId, pin }),
+    body: JSON.stringify(credentials),
   });
   return /** @type {import('./accounts.js').Account} */ (data.account);
 }
@@ -118,4 +139,44 @@ export async function putEnemies(enemies) {
 /** @param {unknown} map */
 export async function putMap(map) {
   return request("/map", { method: "PUT", body: JSON.stringify({ map }) });
+}
+
+/**
+ * @returns {Promise<{ party: import('./parties.js').Party | null, members: import('./accounts.js').Account[] }>}
+ */
+export async function fetchPartyMe() {
+  return request("/parties/me");
+}
+
+/**
+ * @param {string} name
+ * @returns {Promise<{ party: import('./parties.js').Party, members: import('./accounts.js').Account[] }>}
+ */
+export async function createParty(name) {
+  return request("/parties", { method: "POST", body: JSON.stringify({ name }) });
+}
+
+/**
+ * @param {string} code
+ * @returns {Promise<{ party: import('./parties.js').Party, members: import('./accounts.js').Account[] }>}
+ */
+export async function joinParty(code) {
+  return request("/parties/join", { method: "POST", body: JSON.stringify({ code }) });
+}
+
+/** @returns {Promise<void>} */
+export async function leaveParty() {
+  await request("/parties/leave", { method: "POST", body: "{}" });
+}
+
+/**
+ * @param {string} characterId
+ * @returns {Promise<import('./accounts.js').Account>}
+ */
+export async function selectPartyHero(characterId) {
+  const data = await request("/parties/select-hero", {
+    method: "POST",
+    body: JSON.stringify({ characterId }),
+  });
+  return /** @type {import('./accounts.js').Account} */ (data.account);
 }

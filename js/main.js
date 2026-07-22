@@ -1,5 +1,5 @@
 import { generateDungeon, isCellWalkable, canPlaceObstacle, findRoomAt, getStartSpawnCells, computeVisibleCells, getRoomConnectionDoors, THEMES, OBSTACLE_TYPES, ROOM_SHAPE_LABELS } from "./generator.js";
-import { renderMap, computePanToCenterOnCell, renderObstaclePreview } from "./renderer.js";
+import { renderMap, computePanToCenterOnCell, renderObstaclePreview } from "./renderer.js?v=20";
 import {
   hydrateCharacters,
   readLegacyCharacters,
@@ -19,7 +19,9 @@ import {
   readLegacyAccounts,
   loadAccounts,
   createAccount,
+  registerAccount,
   loginAsAccount,
+  logoutCurrentAccount,
   canEditCharacter,
   canCreateCharacter,
   canDeleteCharacter,
@@ -27,11 +29,10 @@ import {
   canRegenerateMap,
   canSwitchMapRole,
   unlinkCharacterFromAccounts,
-  accountNeedsPin,
   isMaster,
   isPlayer,
 } from "./accounts.js";
-import { pingApi, fetchState, putState, putMap, fetchMe } from "./api.js";
+import { fetchHealth, fetchState, putState, putMap, fetchMe, fetchPartyMe, createParty, joinParty, selectPartyHero } from "./api.js";
 import {
   loadBestiary,
   filterBestiary,
@@ -81,6 +82,12 @@ let enemies = [];
 let accounts = [];
 /** @type {import('./accounts.js').Account | null} */
 let currentAccount = null;
+/** @type {import('./parties.js').Party | null} */
+let currentParty = null;
+/** @type {import('./accounts.js').Account[]} */
+let partyMembers = [];
+/** @type {ReturnType<typeof setInterval> | null} */
+let partySyncTimer = null;
 /** @type {import('./characters.js').TokenPlacement[]} */
 let tokens = [];
 /** @type {{ type: 'pc'|'enemy', id: string } | null} */
@@ -127,11 +134,18 @@ const canvas = /** @type {HTMLCanvasElement} */ (document.getElementById("mapCan
 const canvasWrap = document.getElementById("canvasWrap");
 const zoomLabelBtn = document.getElementById("btnZoomReset");
 const stageHint = document.getElementById("stageHint");
+const gameGate = document.getElementById("gameGate");
+const gameGateMessage = document.getElementById("gameGateMessage");
+const btnGameGateLogin = document.getElementById("btnGameGateLogin");
+const btnGameGateRegister = document.getElementById("btnGameGateRegister");
+const btnGameGateSwitch = document.getElementById("btnGameGateSwitch");
 const legend = document.getElementById("legend");
 const charList = document.getElementById("charList");
 const enemyList = document.getElementById("enemyList");
 const roomList = document.getElementById("roomList");
 const roomBanner = document.getElementById("roomBanner");
+const roomBannerText = document.getElementById("roomBannerText");
+const btnExitRoom = /** @type {HTMLButtonElement} */ (document.getElementById("btnExitRoom"));
 const editTools = document.getElementById("editTools");
 const panelObstacles = document.getElementById("panelObstacles");
 const obstaclePicker = document.getElementById("obstaclePicker");
@@ -146,21 +160,51 @@ const heroTabCount = document.getElementById("heroTabCount");
 const enemyTabCount = document.getElementById("enemyTabCount");
 const toastEl = document.getElementById("toast");
 const helpDialog = /** @type {HTMLDialogElement} */ (document.getElementById("helpDialog"));
-const accountDialog = /** @type {HTMLDialogElement} */ (document.getElementById("accountDialog"));
-const accountPinDialog = /** @type {HTMLDialogElement} */ (document.getElementById("accountPinDialog"));
-const accountList = document.getElementById("accountList");
-const accountSessionNote = document.getElementById("accountSessionNote");
+const authDialog = /** @type {HTMLDialogElement} */ (document.getElementById("authDialog"));
+const authTabs = document.getElementById("authTabs");
+const authHeroSub = document.getElementById("authHeroSub");
+const authSessionPanel = document.getElementById("authSessionPanel");
+const authRegisterPanel = document.getElementById("authRegisterPanel");
+const authLoginPanel = document.getElementById("authLoginPanel");
+const authSessionAvatar = document.getElementById("authSessionAvatar");
+const authSessionRole = document.getElementById("authSessionRole");
+const authSessionName = document.getElementById("authSessionName");
+const authSessionNote = document.getElementById("authSessionNote");
+const authSessionCard = document.getElementById("authSessionCard");
+const authAdminBlock = document.getElementById("authAdminBlock");
+const authRegisterForm = /** @type {HTMLFormElement} */ (document.getElementById("authRegisterForm"));
+const authRegisterName = /** @type {HTMLInputElement} */ (document.getElementById("authRegisterName"));
+const authRegisterPin = /** @type {HTMLInputElement} */ (document.getElementById("authRegisterPin"));
+const authRegisterError = document.getElementById("authRegisterError");
+const authPartyCreatePanel = document.getElementById("authPartyCreatePanel");
+const authPartyCreateHint = document.getElementById("authPartyCreateHint");
+const authPartyJoinPanel = document.getElementById("authPartyJoinPanel");
+const authPartyHeroPanel = document.getElementById("authPartyHeroPanel");
+const authPartyCreateForm = /** @type {HTMLFormElement} */ (document.getElementById("authPartyCreateForm"));
+const authPartyName = /** @type {HTMLInputElement} */ (document.getElementById("authPartyName"));
+const authPartyCreateError = document.getElementById("authPartyCreateError");
+const authPartyJoinForm = /** @type {HTMLFormElement} */ (document.getElementById("authPartyJoinForm"));
+const authPartyCode = /** @type {HTMLInputElement} */ (document.getElementById("authPartyCode"));
+const authPartyJoinError = document.getElementById("authPartyJoinError");
+const authPartyHeroGrid = document.getElementById("authPartyHeroGrid");
+const authPartyHeroError = document.getElementById("authPartyHeroError");
+const authPartyInvite = document.getElementById("authPartyInvite");
+const authPartyInviteCode = document.getElementById("authPartyInviteCode");
+const authPartyMemberList = document.getElementById("authPartyMemberList");
+const btnParty = document.getElementById("btnParty");
+const partyChipCode = document.getElementById("partyChipCode");
+const authLoginForm = /** @type {HTMLFormElement} */ (document.getElementById("authLoginForm"));
+const authLoginName = /** @type {HTMLInputElement} */ (document.getElementById("authLoginName"));
+const authLoginPin = /** @type {HTMLInputElement} */ (document.getElementById("authLoginPin"));
+const authLoginError = document.getElementById("authLoginError");
+const authAdminForm = /** @type {HTMLFormElement} */ (document.getElementById("authAdminForm"));
+const authAdminName = /** @type {HTMLInputElement} */ (document.getElementById("authAdminName"));
+const authAdminRole = /** @type {HTMLSelectElement} */ (document.getElementById("authAdminRole"));
+const authAdminCharField = document.getElementById("authAdminCharField");
+const authAdminCharacter = /** @type {HTMLSelectElement} */ (document.getElementById("authAdminCharacter"));
+const authAdminPin = /** @type {HTMLInputElement} */ (document.getElementById("authAdminPin"));
 const accountChipName = document.getElementById("accountChipName");
 const accountChipRole = document.getElementById("accountChipRole");
-const accountCreateForm = /** @type {HTMLFormElement} */ (document.getElementById("accountCreateForm"));
-const accountRoleSelect = /** @type {HTMLSelectElement} */ (document.getElementById("accountRole"));
-const accountCharField = document.getElementById("accountCharField");
-const accountCharacterSelect = /** @type {HTMLSelectElement} */ (document.getElementById("accountCharacter"));
-const accountPinForm = /** @type {HTMLFormElement} */ (document.getElementById("accountPinForm"));
-const accountPinInput = /** @type {HTMLInputElement} */ (document.getElementById("accountPinInput"));
-const accountPinLabel = document.getElementById("accountPinLabel");
-const btnCloseRoom = /** @type {HTMLButtonElement} */ (document.getElementById("btnCloseRoom"));
-const btnToolbarBack = /** @type {HTMLButtonElement} */ (document.getElementById("btnToolbarBack"));
 const charDialog = /** @type {HTMLDialogElement} */ (document.getElementById("charDialog"));
 const charForm = /** @type {HTMLFormElement} */ (document.getElementById("charForm"));
 const btnDeleteChar = /** @type {HTMLButtonElement} */ (document.getElementById("btnDeleteChar"));
@@ -207,8 +251,8 @@ let draftFeats = [];
 let draftSkills = {};
 /** @type {string} */
 let draftPortrait = "";
-/** @type {string | null} */
-let pendingPinAccountId = null;
+/** @type {'register'|'login'|'session'|'party-create'|'party-join'|'party-hero'} */
+let authView = "register";
 /** @type {boolean} */
 let charViewOnly = false;
 
@@ -693,6 +737,9 @@ function applyMapState(data) {
     obstacleVariants =
       data.obstacleVariants && typeof data.obstacleVariants === "object" ? { ...data.obstacleVariants } : {};
     doorStates = data.doorStates && typeof data.doorStates === "object" ? { ...data.doorStates } : {};
+    if (!Object.keys(doorStates).length) {
+      openDoorsForRoom(dungeon.startRoomId ?? 0);
+    }
     selectedObstacleVariant = Number(data.selectedObstacleVariant) || 0;
     const savedVisited = Array.isArray(data.visitedRoomIds)
       ? data.visitedRoomIds.map(Number).filter((n) => Number.isFinite(n))
@@ -714,9 +761,6 @@ function applyMapState(data) {
     }
     unlockedRoomIds.add(startId);
     setMapRole(data.mapRole === "player" ? "player" : "master", false);
-    if (openedRoomId != null && isMaster(currentAccount)) {
-      openDoorsForRoom(openedRoomId);
-    }
     updateIsoRotateUi();
     return true;
   } catch {
@@ -771,6 +815,7 @@ function regenerateMap(opts = {}) {
   resetVisitedRooms();
   obstacleVariants = {};
   doorStates = {};
+  openDoorsForRoom(dungeon.startRoomId ?? 0);
   selectedObstacleVariant = 0;
   setEditTool("token", false);
   stageHint?.classList.add("is-hidden");
@@ -784,46 +829,174 @@ function regenerateMap(opts = {}) {
 
 document.getElementById("btnGenerate")?.addEventListener("click", () => regenerateMap());
 document.getElementById("btnRegenToolbar")?.addEventListener("click", () => regenerateMap());
-document.getElementById("btnAccount")?.addEventListener("click", () => openAccountDialog());
-document.getElementById("btnCloseAccountDialog")?.addEventListener("click", () => accountDialog?.close());
-document.getElementById("btnCancelPin")?.addEventListener("click", () => {
-  pendingPinAccountId = null;
-  accountPinDialog?.close();
+document.getElementById("btnAccount")?.addEventListener("click", () => openAuthDialog());
+btnGameGateLogin?.addEventListener("click", () => openAuthDialog("login"));
+btnGameGateRegister?.addEventListener("click", () => openAuthDialog("register"));
+btnGameGateSwitch?.addEventListener("click", () => void switchAccountFlow());
+document.getElementById("btnPartyJoinSwitch")?.addEventListener("click", () => void switchAccountFlow());
+document.getElementById("btnPartyCreateSwitch")?.addEventListener("click", () => void switchAccountFlow());
+btnParty?.addEventListener("click", () => openAuthDialog("session"));
+document.getElementById("btnCloseAuth")?.addEventListener("click", () => authDialog?.close());
+document.getElementById("btnShowLogin")?.addEventListener("click", () => showAuthView("login"));
+document.getElementById("btnShowRegister")?.addEventListener("click", () => showAuthView("register"));
+document.getElementById("btnAuthSwitch")?.addEventListener("click", () => void switchAccountFlow());
+document.getElementById("btnLogout")?.addEventListener("click", () => void logoutSession());
+document.getElementById("btnCopyPartyCode")?.addEventListener("click", () => void copyPartyCode());
+
+authTabs?.addEventListener("click", (e) => {
+  const tab = /** @type {HTMLElement} */ (e.target).closest("[data-auth-tab]");
+  if (!tab) return;
+  const view = tab.getAttribute("data-auth-tab");
+  if (view === "register" || view === "login") showAuthView(view);
 });
 
-accountRoleSelect?.addEventListener("change", syncAccountCreateFields);
-accountCreateForm?.addEventListener("submit", async (e) => {
+authAdminRole?.addEventListener("change", syncAuthAdminFields);
+
+authPartyCode?.addEventListener("input", () => {
+  if (authPartyCode) authPartyCode.value = authPartyCode.value.replace(/\D/g, "").slice(0, 6);
+});
+
+authRegisterForm?.addEventListener("submit", async (e) => {
   e.preventDefault();
-  const name = /** @type {HTMLInputElement} */ (document.getElementById("accountName")).value.trim();
-  const role = /** @type {'master'|'player'} */ (accountRoleSelect.value || "player");
-  const pin = /** @type {HTMLInputElement} */ (document.getElementById("accountPin")).value.trim();
-  let characterId = accountCharacterSelect?.value || null;
+  setAuthError(authRegisterError, "");
+  const name = authRegisterName?.value.trim() || "";
+  const pin = authRegisterPin?.value.trim() || "";
+  if (!name) {
+    setAuthError(authRegisterError, "Введите имя");
+    return;
+  }
+  if (!isValidPin(pin)) {
+    setAuthError(authRegisterError, "PIN: 4–8 цифр");
+    return;
+  }
+  try {
+    const account = await registerAccount({ name, pin });
+    accounts = [account];
+    const ok = await loginAs({ name, pin }, false);
+    if (!ok) {
+      setAuthError(authRegisterError, "Аккаунт создан, но вход не удался — попробуйте войти вручную");
+      showAuthView("login");
+      return;
+    }
+    authRegisterForm.reset();
+    showToast(`Аккаунт создан, ${account.name}!`);
+    await resolvePartyGate();
+  } catch (err) {
+    setAuthError(authRegisterError, parseAuthError(err, "Не удалось зарегистрироваться"));
+  }
+});
+
+authLoginForm?.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  setAuthError(authLoginError, "");
+  const name = authLoginName?.value.trim() || "";
+  const pin = authLoginPin?.value || "";
+  if (!name) {
+    setAuthError(authLoginError, "Введите имя");
+    return;
+  }
+  if (!isValidPin(pin)) {
+    setAuthError(authLoginError, "PIN: 4–8 цифр");
+    authLoginPin?.focus();
+    return;
+  }
+  const ok = await loginAs({ name, pin }, false);
+  if (ok) {
+    authLoginForm.reset();
+    await resolvePartyGate();
+  } else {
+    setAuthError(authLoginError, "Неверный PIN или аккаунт");
+  }
+});
+
+authPartyCreateForm?.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  setAuthError(authPartyCreateError, "");
+  currentAccount = await fetchMe();
+  if (!currentAccount) {
+    setAuthError(authPartyCreateError, "Сначала войдите как мастер");
+    showAuthView("login");
+    return;
+  }
+  if (!isMaster(currentAccount)) {
+    setAuthError(authPartyCreateError, "Создавать команду может только мастер");
+    showAuthView("login");
+    return;
+  }
+  const name = authPartyName?.value.trim() || "Партия";
+  try {
+    const ctx = await createParty(name);
+    await applyPartyContext(ctx);
+    await loadPartyGameState();
+    authDialog?.close();
+    showToast(`Команда создана · код ${currentParty?.code || ""}`);
+    applyAccountSession(false);
+    startPartySync();
+    updateGameAccessUi();
+  } catch (err) {
+    setAuthError(authPartyCreateError, parseAuthError(err, "Не удалось создать команду"));
+  }
+});
+
+authPartyJoinForm?.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  setAuthError(authPartyJoinError, "");
+  const code = authPartyCode?.value.trim() || "";
+  if (code.length !== 6) {
+    setAuthError(authPartyJoinError, "Код должен быть из 6 цифр");
+    return;
+  }
+  try {
+    const ctx = await joinParty(code);
+    await applyPartyContext(ctx);
+    currentAccount = await fetchMe();
+    await loadPartyGameState();
+    authPartyJoinForm.reset();
+    if (isPlayer(currentAccount) && !currentAccount?.characterId) {
+      showAuthView("party-hero");
+      renderPartyHeroGrid();
+      authDialog?.showModal();
+      return;
+    }
+    authDialog?.close();
+    showToast(`Вы в команде «${currentParty?.name || ""}»`);
+    applyAccountSession(false);
+    startPartySync();
+    updateGameAccessUi();
+  } catch (err) {
+    setAuthError(authPartyJoinError, parseAuthError(err, "Неверный код или команда недоступна"));
+  }
+});
+
+authAdminForm?.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  if (!isMaster(currentAccount)) return;
+  const name = authAdminName?.value.trim() || "";
+  const role = /** @type {'master'|'player'} */ (authAdminRole?.value || "player");
+  const pin = authAdminPin?.value.trim() || "";
+  let characterId = authAdminCharacter?.value || null;
+  if (!name) {
+    showToast("Введите имя");
+    return;
+  }
+  if (!isValidPin(pin)) {
+    showToast("PIN: 4–8 цифр");
+    return;
+  }
   if (role === "player" && !characterId) {
     showToast("Выберите персонажа для игрока");
     return;
   }
   if (role === "master") characterId = null;
   try {
-    const account = await createAccount({ name, role, characterId, pin });
-    accounts = await loadAccounts();
-    await loginAs(account.id, pin, true);
-    accountCreateForm.reset();
-    syncAccountCreateFields();
-    accountDialog?.close();
+    await createAccount({ name, role, characterId, pin });
+    accounts = await loadAccounts().catch(() => accounts);
+    fillAuthCharacterSelects();
+    authAdminForm.reset();
+    syncAuthAdminFields();
+    showToast(`Аккаунт «${name}» создан`);
   } catch {
     showToast("Не удалось создать аккаунт");
-  }
-});
-
-accountPinForm?.addEventListener("submit", async (e) => {
-  e.preventDefault();
-  if (!pendingPinAccountId) return;
-  const pin = accountPinInput?.value || "";
-  const ok = await loginAs(pendingPinAccountId, pin, true);
-  if (ok) {
-    pendingPinAccountId = null;
-    accountPinDialog?.close();
-    accountDialog?.close();
   }
 });
 document.getElementById("btnCopySeed")?.addEventListener("click", async () => {
@@ -857,8 +1030,7 @@ function updateSeedDisplay() {
   showToast("Жетоны убраны с карты");
 });
 
-btnCloseRoom.addEventListener("click", () => closeRoom());
-btnToolbarBack.addEventListener("click", () => closeRoom());
+btnExitRoom?.addEventListener("click", () => closeRoom());
 
 document.getElementById("btnNewChar")?.addEventListener("click", () => {
   if (!canCreateCharacter(currentAccount)) {
@@ -1109,12 +1281,6 @@ canvas.addEventListener("click", (e) => {
     return;
   }
 
-  const cellType = dungeon.grid[cell.y]?.[cell.x];
-  if (cellType === "door") {
-    toggleDoor(cell.x, cell.y);
-    return;
-  }
-
   // Клик по жетону — выделить персонажа (им же ходят WASD)
   const tokenHere = findTokenAt(cell.x, cell.y);
   if (tokenHere && editTool !== "obstacle") {
@@ -1155,6 +1321,16 @@ canvas.addEventListener("click", (e) => {
   placeSelectedToken(cell.x, cell.y);
 });
 
+canvas.addEventListener("contextmenu", (e) => {
+  e.preventDefault();
+  handleDoorPointer(e.clientX, e.clientY);
+});
+
+canvasWrap?.addEventListener("contextmenu", (e) => {
+  e.preventDefault();
+  handleDoorPointer(e.clientX, e.clientY);
+});
+
 document.getElementById("btnZoomIn")?.addEventListener("click", (e) => {
   e.preventDefault();
   e.stopPropagation();
@@ -1187,6 +1363,11 @@ canvasWrap?.addEventListener("wheel", onMapWheel, { passive: false });
 const MAP_PAN_THRESHOLD = 4;
 
 canvas.addEventListener("pointerdown", (e) => {
+  if (e.button === 2) {
+    e.preventDefault();
+    handleDoorPointer(e.clientX, e.clientY);
+    return;
+  }
   if (e.button !== 0 && e.button !== 1) return;
   if (e.button === 1) e.preventDefault();
   mapPanning = true;
@@ -1260,7 +1441,7 @@ window.addEventListener("keydown", (e) => {
     return;
   }
 
-  if (e.key === " " || e.code === "Space") {
+  if (e.key === " " || e.code === "Space" || e.key === "Enter" || e.code === "NumpadEnter") {
     e.preventDefault();
     clearActorSelection();
     return;
@@ -1378,7 +1559,10 @@ function moveSelectedActor(dx, dy) {
   const nx = token.x + dx;
   const ny = token.y + dy;
   const type = dungeon.grid[ny]?.[nx];
-  if (!type || !isCellWalkable(dungeon.grid, nx, ny, doorStates)) return;
+  if (!type || !isCellWalkable(dungeon.grid, nx, ny, doorStates)) {
+    if (type === "door") showToast("Дверь закрыта");
+    return;
+  }
 
   if (mapRole === "player" && !isCellVisibleToPlayer(nx, ny)) return;
 
@@ -1394,10 +1578,8 @@ function moveSelectedActor(dx, dy) {
   if (room) {
     markRoomVisited(room.id);
     if (openedRoomId != null && openedRoomId !== room.id) {
-      const prev = openedRoomId;
       selectedRoomId = room.id;
       openedRoomId = room.id;
-      syncOpenedRoomDoors(prev, room.id);
     }
   } else if (openedRoomId != null) {
     // Вышли в коридор — общий вид карты
@@ -1579,6 +1761,49 @@ function toggleObstacle(x, y, type) {
 }
 
 /**
+ * @param {number} clientX
+ * @param {number} clientY
+ * @returns {{ x: number, y: number } | null}
+ */
+function findDoorCellAtScreen(clientX, clientY) {
+  if (!dungeon || !hitMap) return null;
+  const rect = canvas.getBoundingClientRect();
+  const cell = hitMap.screenToCell(clientX - rect.left, clientY - rect.top);
+  if (!cell) return null;
+  if (dungeon.grid[cell.y]?.[cell.x] === "door") return cell;
+  for (const [dx, dy] of [
+    [0, -1],
+    [0, 1],
+    [-1, 0],
+    [1, 0],
+    [-1, -1],
+    [-1, 1],
+    [1, -1],
+    [1, 1],
+  ]) {
+    const x = cell.x + dx;
+    const y = cell.y + dy;
+    if (dungeon.grid[y]?.[x] === "door") return { x, y };
+  }
+  return null;
+}
+
+/**
+ * @param {number} clientX
+ * @param {number} clientY
+ */
+function handleDoorPointer(clientX, clientY) {
+  if (!dungeon || !hitMap) return;
+  if (!isMaster(currentAccount)) {
+    showToast("Дверями управляет только мастер (ПКМ)");
+    return;
+  }
+  const door = findDoorCellAtScreen(clientX, clientY);
+  if (!door) return;
+  toggleDoor(door.x, door.y);
+}
+
+/**
  * @param {number} x
  * @param {number} y
  * @param {boolean} open
@@ -1600,36 +1825,11 @@ function openDoorsForRoom(roomId) {
 }
 
 /**
- * @param {number} roomId
- */
-function closeDoorsForRoom(roomId) {
-  if (!dungeon) return;
-  for (const { x, y } of getRoomConnectionDoors(dungeon, roomId)) {
-    setDoorOpen(x, y, false);
-  }
-}
-
-/**
- * @param {number | null} prevRoomId
- * @param {number | null} nextRoomId
- */
-function syncOpenedRoomDoors(prevRoomId, nextRoomId) {
-  if (!isMaster(currentAccount) || !dungeon) return;
-  if (prevRoomId != null && prevRoomId !== nextRoomId) {
-    closeDoorsForRoom(prevRoomId);
-  }
-  if (nextRoomId != null) {
-    openDoorsForRoom(nextRoomId);
-  }
-  void saveMapState();
-}
-
-/**
  * @param {number} x
  * @param {number} y
  */
 function toggleDoor(x, y) {
-  if (!dungeon || dungeon.grid[y]?.[x] !== "door") return;
+  if (!isMaster(currentAccount) || !dungeon || dungeon.grid[y]?.[x] !== "door") return;
   const key = `${x},${y}`;
   if (doorStates[key]) {
     delete doorStates[key];
@@ -1769,10 +1969,8 @@ function openRoom(id) {
     }
   }
   markRoomVisited(id);
-  const prevOpened = openedRoomId;
   selectedRoomId = id;
   openedRoomId = id;
-  syncOpenedRoomDoors(prevOpened, id);
   setEditTool("token", false);
   setPanelTab("rooms");
   redraw();
@@ -1857,9 +2055,7 @@ function updatePanelCounts() {
 }
 
 function closeRoom() {
-  const prevOpened = openedRoomId;
   openedRoomId = null;
-  syncOpenedRoomDoors(prevOpened, null);
   setEditTool("token", false);
   redraw();
   showToast("Общая карта");
@@ -1935,15 +2131,12 @@ function spawnPartyInStartRoom(map) {
 }
 
 function updateRoomChrome() {
-  btnCloseRoom.hidden = openedRoomId == null;
-  btnToolbarBack.hidden = openedRoomId == null;
-  if (editTools) editTools.hidden = openedRoomId == null;
+  const inRoomView = openedRoomId != null;
+  if (btnExitRoom) btnExitRoom.hidden = !inRoomView;
+  if (editTools) editTools.hidden = !inRoomView;
   if (roomPickHint) {
-    roomPickHint.hidden = openedRoomId != null;
-    roomPickHint.textContent =
-      openedRoomId != null
-        ? ""
-        : "Клик по комнате — открыть крупно";
+    roomPickHint.hidden = inRoomView;
+    roomPickHint.textContent = inRoomView ? "" : "Клик по комнате — открыть крупно";
   }
   updatePanelCounts();
   updateCursor();
@@ -1952,17 +2145,20 @@ function updateRoomChrome() {
   if (!roomBanner) return;
   if (openedRoomId == null || !dungeon) {
     roomBanner.hidden = true;
-    roomBanner.textContent = "";
+    if (roomBannerText) roomBannerText.textContent = "";
     return;
   }
   const room = dungeon.rooms.find((r) => r.id === openedRoomId);
   if (!room) {
     roomBanner.hidden = true;
+    if (roomBannerText) roomBannerText.textContent = "";
     return;
   }
   const mode = editTool === "obstacle" ? "препятствия" : "жетоны";
   roomBanner.hidden = false;
-  roomBanner.innerHTML = `<strong>${escapeHtml(room.name)}</strong> · ${room.w}×${room.h} · ${mode}`;
+  if (roomBannerText) {
+    roomBannerText.innerHTML = `<strong>${escapeHtml(room.name)}</strong> · ${room.w}×${room.h} · ${mode}`;
+  }
 }
 
 function renderRoomList() {
@@ -2614,6 +2810,11 @@ function escapeHtml(s) {
     .replaceAll("'", "&#39;");
 }
 
+/** @param {string} pin */
+function isValidPin(pin) {
+  return /^\d{4,8}$/.test(String(pin || "").trim());
+}
+
 /**
  * @param {'pc'|'enemy'} type
  * @param {string} id
@@ -2641,19 +2842,41 @@ function updateAccountUi() {
       accountChipRole.textContent = "мастер";
     }
   }
-  if (accountSessionNote) {
+  updatePermissionUi();
+  updateGameAccessUi();
+}
+
+/** Есть ли доступ к карте и игровым панелям. */
+function canAccessGame() {
+  if (!currentAccount) return false;
+  return Boolean(currentParty || currentAccount.partyId);
+}
+
+function updateGameAccessUi() {
+  const locked = !canAccessGame();
+  document.documentElement.classList.toggle("is-game-locked", locked);
+  if (gameGate) gameGate.hidden = !locked;
+  if (locked && gameGateMessage) {
     if (!currentAccount) {
-      accountSessionNote.textContent = "Сейчас никто не вошёл. Выберите аккаунт или создайте новый.";
-    } else if (currentAccount.role === "master") {
-      accountSessionNote.textContent = `Вы вошли как мастер «${currentAccount.name}». Можно править статы всех героев.`;
+      gameGateMessage.textContent = "Войдите или зарегистрируйтесь — без аккаунта карта и отряд недоступны.";
+    } else if (isMaster(currentAccount)) {
+      gameGateMessage.textContent = "Создайте команду и пригласите игроков по коду — после этого откроется карта.";
     } else {
-      const ch = characters.find((c) => c.id === currentAccount.characterId);
-      accountSessionNote.textContent = ch
-        ? `Вы вошли как игрок «${currentAccount.name}» · персонаж «${ch.name}».`
-        : `Вы вошли как игрок «${currentAccount.name}», но персонаж не привязан.`;
+      gameGateMessage.textContent = "Введите 6-значный код от мастера, чтобы вступить в команду и увидеть карту.";
     }
   }
-  updatePermissionUi();
+  if (btnGameGateLogin) btnGameGateLogin.hidden = Boolean(currentAccount);
+  if (btnGameGateRegister) btnGameGateRegister.hidden = Boolean(currentAccount);
+  if (btnGameGateSwitch) btnGameGateSwitch.hidden = !currentAccount;
+  if (locked) {
+    setStatus(
+      !currentAccount
+        ? "Требуется авторизация"
+        : isMaster(currentAccount)
+          ? "Создайте команду для доступа к карте"
+          : "Вступите в команду для доступа к карте"
+    );
+  }
 }
 
 function updatePermissionUi() {
@@ -2706,114 +2929,457 @@ function updatePermissionUi() {
   }
 }
 
-function openAccountDialog() {
-  void loadAccounts()
-    .then((list) => {
-      accounts = list;
-      fillAccountCharacterSelect();
-      syncAccountCreateFields();
-      renderAccountList();
-      updateAccountUi();
-      accountDialog?.showModal();
+/**
+ * @param {'register'|'login'|'session'|'party-create'|'party-join'|'party-hero'} view
+ */
+function showAuthView(view) {
+  authView = view;
+  const isAuthTab = view === "register" || view === "login";
+  authSessionPanel?.toggleAttribute("hidden", view !== "session");
+  authRegisterPanel?.toggleAttribute("hidden", view !== "register");
+  authLoginPanel?.toggleAttribute("hidden", view !== "login");
+  authPartyCreatePanel?.toggleAttribute("hidden", view !== "party-create");
+  authPartyJoinPanel?.toggleAttribute("hidden", view !== "party-join");
+  authPartyHeroPanel?.toggleAttribute("hidden", view !== "party-hero");
+  if (authTabs) authTabs.hidden = !isAuthTab;
+  if (authPartyCreateHint) authPartyCreateHint.hidden = view !== "party-create" || Boolean(currentAccount && isMaster(currentAccount));
+  authTabs?.querySelectorAll(".auth-tab").forEach((tab) => {
+    const id = tab.getAttribute("data-auth-tab");
+    const active = id === view;
+    tab.classList.toggle("is-active", active);
+    tab.setAttribute("aria-selected", active ? "true" : "false");
+  });
+  if (authHeroSub) {
+    const subs = {
+      session: currentParty ? `Команда «${currentParty.name}»` : currentAccount ? `Вы вошли как ${currentAccount.name}` : "Профиль",
+      login: "С возвращением в подземелье",
+      register: "Создайте аккаунт и вступите в команду",
+      "party-create": "Создайте команду для игроков",
+      "party-join": "Введите код от мастера",
+      "party-hero": "Выберите героя",
+    };
+    authHeroSub.textContent = subs[view] || "Глубины";
+  }
+  setAuthError(authRegisterError, "");
+  setAuthError(authLoginError, "");
+  setAuthError(authPartyCreateError, "");
+  setAuthError(authPartyJoinError, "");
+  setAuthError(authPartyHeroError, "");
+  if (view === "login") {
+    authLoginName?.focus();
+  } else if (view === "register") {
+    authRegisterName?.focus();
+  } else if (view === "session") {
+    renderAuthSessionPanel();
+  } else if (view === "party-join") {
+    authPartyCode?.focus();
+  } else if (view === "party-hero") {
+    renderPartyHeroGrid();
+  }
+}
+
+function openAuthDialog(preferredView) {
+  void refreshPartyContext()
+    .then(async () => {
+      if (currentAccount) {
+        accounts = await loadAccounts().catch(() => partyMembers.length ? partyMembers : accounts);
+      }
+      fillAuthCharacterSelects();
+      if (currentAccount && currentParty && preferredView !== "login" && preferredView !== "register") {
+        showAuthView("session");
+      } else if (currentAccount) {
+        void resolvePartyGate(preferredView);
+        return;
+      } else {
+        showAuthView(preferredView || authView || "register");
+      }
+      authDialog?.showModal();
     })
     .catch(() => {
-      fillAccountCharacterSelect();
-      syncAccountCreateFields();
-      renderAccountList();
-      updateAccountUi();
-      accountDialog?.showModal();
+      fillAuthCharacterSelects();
+      if (currentAccount) showAuthView("session");
+      else showAuthView(preferredView || "register");
+      authDialog?.showModal();
     });
 }
 
-function syncAccountCreateFields() {
-  const role = accountRoleSelect?.value || "player";
-  if (accountCharField) accountCharField.hidden = role !== "player";
+/** Выход и экран входа — для смены аккаунта без доступа к карте. */
+async function switchAccountFlow() {
+  stopPartySync();
+  try {
+    await logoutCurrentAccount();
+  } catch {
+    /* ignore */
+  }
+  currentAccount = null;
+  currentParty = null;
+  partyMembers = [];
+  accounts = currentAccount ? await loadAccounts().catch(() => partyMembers) : [];
+  fillAuthCharacterSelects();
+  updateAccountUi();
+  updatePartyUi();
+  updateGameAccessUi();
+  showAuthView("login");
+  authDialog?.showModal();
 }
 
-function fillAccountCharacterSelect() {
-  if (!accountCharacterSelect) return;
+/**
+ * @param {{ party: import('./parties.js').Party | null, members?: import('./accounts.js').Account[] } | null} ctx
+ */
+async function applyPartyContext(ctx) {
+  currentParty = ctx?.party || null;
+  partyMembers = ctx?.members || [];
+  currentAccount = await fetchMe();
+  if (!currentParty && currentAccount?.partyId) {
+    currentParty = {
+      id: currentAccount.partyId,
+      code: "------",
+      name: "Партия",
+      masterAccountId: currentAccount.id,
+    };
+  }
+  updatePartyUi();
+  updateGameAccessUi();
+}
+
+async function refreshPartyContext() {
+  currentAccount = await fetchMe();
+  if (!currentAccount) {
+    currentParty = null;
+    partyMembers = [];
+    updatePartyUi();
+    updateGameAccessUi();
+    return;
+  }
+  try {
+    const ctx = await fetchPartyMe();
+    currentParty = ctx?.party || null;
+    partyMembers = ctx?.members || [];
+    if (!currentParty && currentAccount.partyId) {
+      currentParty = {
+        id: currentAccount.partyId,
+        code: "------",
+        name: "Партия",
+        masterAccountId: currentAccount.id,
+      };
+    }
+  } catch {
+    currentParty = currentAccount.partyId
+      ? {
+          id: currentAccount.partyId,
+          code: "------",
+          name: "Партия",
+          masterAccountId: currentAccount.id,
+        }
+      : null;
+    partyMembers = [];
+  }
+  updatePartyUi();
+  updateGameAccessUi();
+}
+
+/**
+ * @param {string} [preferredView]
+ */
+async function resolvePartyGate(preferredView) {
+  await refreshPartyContext();
+  updateGameAccessUi();
+  if (!currentAccount) {
+    showAuthView(preferredView === "party-create" ? "login" : preferredView || "register");
+    authDialog?.showModal();
+    return;
+  }
+  if (isMaster(currentAccount)) {
+    if (currentParty || currentAccount.partyId) {
+      await loadPartyGameState();
+      authDialog?.close();
+      applyAccountSession(false);
+      startPartySync();
+      updateGameAccessUi();
+      return;
+    }
+    showAuthView("party-create");
+    authDialog?.showModal();
+    return;
+  }
+  if (!currentParty) {
+    showAuthView("party-join");
+    authDialog?.showModal();
+    return;
+  }
+  await loadPartyGameState();
+  if (!currentAccount.characterId) {
+    showAuthView("party-hero");
+    renderPartyHeroGrid();
+    authDialog?.showModal();
+    updateGameAccessUi();
+    return;
+  }
+  authDialog?.close();
+  applyAccountSession(false);
+  startPartySync();
+  updateGameAccessUi();
+}
+
+async function loadPartyGameState() {
+  const state = await fetchState();
+  if (state.characters) characters = hydrateCharacters(state.characters);
+  if (state.enemies) enemies = hydrateEnemies(state.enemies);
+  if (state.accounts) accounts = hydrateAccounts(state.accounts);
+  accounts = await loadAccounts().catch(() => accounts);
+
+  const mapLoaded = state.map ? applyMapState(state.map) : false;
+  if (!mapLoaded && canRegenerateMap(currentAccount)) {
+    regenerateMap({ toast: false, switchToRooms: false });
+    await saveMapState();
+  } else if (mapLoaded) {
+    updateLegend();
+    updateSeedDisplay();
+    redraw();
+  }
+  renderCharList();
+  renderEnemyList();
+  updateAccountUi();
+}
+
+function updatePartyUi() {
+  const inParty = Boolean(currentParty);
+  if (btnParty) btnParty.hidden = !inParty || !isMaster(currentAccount);
+  if (partyChipCode && currentParty) partyChipCode.textContent = currentParty.code;
+  if (authPartyInvite) authPartyInvite.hidden = !isMaster(currentAccount) || !currentParty;
+  if (authPartyInviteCode && currentParty) authPartyInviteCode.textContent = currentParty.code;
+  renderPartyMemberList();
+}
+
+function renderPartyMemberList() {
+  if (!authPartyMemberList) return;
+  authPartyMemberList.innerHTML = "";
+  if (!partyMembers.length) return;
+  for (const m of partyMembers) {
+    const ch = m.characterId ? characters.find((c) => c.id === m.characterId) : null;
+    const li = document.createElement("li");
+    li.innerHTML = `
+      <div>
+        <strong>${escapeHtml(m.name)}</strong>
+        <div class="member-role">${m.role === "master" ? "Мастер" : "Игрок"}</div>
+      </div>
+      <span class="member-hero">${ch ? escapeHtml(ch.name) : "—"}</span>
+    `;
+    authPartyMemberList.appendChild(li);
+  }
+}
+
+function renderPartyHeroGrid() {
+  if (!authPartyHeroGrid) return;
+  authPartyHeroGrid.innerHTML = "";
+  const taken = new Set(partyMembers.filter((m) => m.characterId).map((m) => m.characterId));
+  if (!characters.length) {
+    authPartyHeroGrid.innerHTML = `<p class="party-hero-empty">Мастер ещё не создал героев. Подождите или попросите добавить персонажа.</p>`;
+    return;
+  }
+  for (const ch of characters) {
+    const busy = taken.has(ch.id);
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "party-hero-card";
+    btn.disabled = busy;
+    btn.innerHTML = `
+      <span class="hero-avatar" style="background:${escapeHtml(ch.color)}">${escapeHtml(ch.symbol)}</span>
+      <span class="hero-info">
+        <strong>${escapeHtml(ch.name)}</strong>
+        <span>${escapeHtml(ch.className)} · ур. ${ch.level}${busy ? " · занят" : ""}</span>
+      </span>
+    `;
+    if (!busy) {
+      btn.addEventListener("click", () => void pickPartyHero(ch.id));
+    }
+    authPartyHeroGrid.appendChild(btn);
+  }
+}
+
+/**
+ * @param {string} characterId
+ */
+async function pickPartyHero(characterId) {
+  setAuthError(authPartyHeroError, "");
+  try {
+    currentAccount = await selectPartyHero(characterId);
+    await refreshPartyContext();
+    authDialog?.close();
+    applyAccountSession(true);
+    startPartySync();
+    showToast(`Вы играете за ${characters.find((c) => c.id === characterId)?.name || "героя"}`);
+  } catch (err) {
+    setAuthError(authPartyHeroError, parseAuthError(err, "Не удалось выбрать героя"));
+    renderPartyHeroGrid();
+  }
+}
+
+async function copyPartyCode() {
+  if (!currentParty?.code) return;
+  try {
+    await navigator.clipboard.writeText(currentParty.code);
+    showToast("Код скопирован");
+  } catch {
+    showToast(`Код: ${currentParty.code}`);
+  }
+}
+
+function stopPartySync() {
+  if (partySyncTimer) {
+    clearInterval(partySyncTimer);
+    partySyncTimer = null;
+  }
+}
+
+function startPartySync() {
+  stopPartySync();
+  if (!currentParty) return;
+  partySyncTimer = setInterval(async () => {
+    if (document.hidden || charDialog?.open || enemyDialog?.open) return;
+    try {
+      const state = await fetchState();
+      if (state.map && !isMaster(currentAccount)) {
+        const prevRole = mapRole;
+        applyMapState(state.map);
+        setMapRole(prevRole, false);
+        redraw();
+      }
+      if (state.characters && !isMaster(currentAccount)) {
+        characters = hydrateCharacters(state.characters);
+        renderCharList();
+      }
+      await refreshPartyContext();
+    } catch {
+      /* ignore transient errors */
+    }
+  }, 4500);
+}
+
+function renderAuthSessionPanel() {
+  if (!currentAccount) return;
+  const ch = currentAccount.characterId ? characters.find((c) => c.id === currentAccount.characterId) : null;
+  const isPlayerRole = currentAccount.role === "player";
+  const roleLabel = isPlayerRole ? "Игрок" : "Мастер";
+  const initial = (currentAccount.name || "?").trim().charAt(0).toUpperCase() || "?";
+
+  if (authSessionAvatar) {
+    authSessionAvatar.textContent = initial;
+    authSessionAvatar.classList.toggle("is-player", isPlayerRole);
+  }
+  if (authSessionRole) {
+    authSessionRole.textContent = roleLabel;
+    authSessionRole.classList.toggle("is-player", isPlayerRole);
+  }
+  if (authSessionName) authSessionName.textContent = currentAccount.name;
+  if (authSessionNote) {
+    authSessionNote.textContent =
+      currentAccount.role === "master"
+        ? "Полный доступ к карте, героям и врагам"
+        : ch
+          ? `Играете за ${ch.name}`
+          : "Персонаж не привязан";
+  }
+  if (authSessionCard) {
+    authSessionCard.innerHTML = `
+      ${currentParty ? `<div class="auth-session-row"><span>Команда</span><strong>${escapeHtml(currentParty.name)}</strong></div>` : ""}
+      ${ch ? `<div class="auth-session-row"><span>Герой</span><strong>${escapeHtml(ch.name)}</strong></div>` : ""}
+      <div class="auth-session-row"><span>PIN</span><strong>Задан 🔒</strong></div>
+    `;
+  }
+  if (authAdminBlock) authAdminBlock.hidden = !isMaster(currentAccount);
+  updatePartyUi();
+}
+
+function fillAuthCharacterSelects() {
+  const memberAccounts = accounts.length ? accounts : partyMembers;
   const linked = new Set(
-    accounts.filter((a) => a.role === "player" && a.characterId).map((a) => a.characterId)
+    memberAccounts.filter((a) => a.role === "player" && a.characterId).map((a) => a.characterId)
   );
-  accountCharacterSelect.innerHTML = characters
+  const options = characters
     .map((ch) => {
-      const taken = linked.has(ch.id) ? " (занят)" : "";
+      const taken = linked.has(ch.id) ? " — занят" : "";
       return `<option value="${ch.id}">${escapeHtml(ch.name)}${taken}</option>`;
     })
     .join("");
-  if (!characters.length) {
-    accountCharacterSelect.innerHTML = `<option value="">Нет героев — сначала создайте</option>`;
+  const empty = `<option value="">— выберите героя —</option>`;
+  const noHeroes = `<option value="">Нет героев — создайте в отряде</option>`;
+  if (authAdminCharacter) {
+    authAdminCharacter.innerHTML = characters.length ? empty + options : noHeroes;
   }
 }
 
-function renderAccountList() {
-  if (!accountList) return;
-  accountList.innerHTML = "";
-  if (!accounts.length) {
-    const empty = document.createElement("li");
-    empty.className = "entity-empty";
-    empty.textContent = "Нет аккаунтов.";
-    accountList.appendChild(empty);
-    return;
-  }
-
-  for (const acc of accounts) {
-    const active = currentAccount?.id === acc.id;
-    const ch = acc.characterId ? characters.find((c) => c.id === acc.characterId) : null;
-    const li = document.createElement("li");
-    li.className = "entity-card" + (active ? " is-selected" : "");
-    li.innerHTML = `
-      <span class="entity-avatar num">${acc.role === "master" ? "М" : "И"}</span>
-      <div class="entity-info">
-        <strong>${escapeHtml(acc.name)}</strong>
-        <span class="entity-sub">${acc.role === "master" ? "Мастер" : ch ? `Игрок · ${escapeHtml(ch.name)}` : "Игрок · без персонажа"}${accountNeedsPin(acc) ? " · PIN" : ""}</span>
-      </div>
-      <button type="button" class="entity-action${active ? "" : " primary"}" data-login="${acc.id}">
-        ${active ? "Текущий" : "Войти"}
-      </button>
-    `;
-    if (!active) {
-      li.querySelector("[data-login]")?.addEventListener("click", (e) => {
-        e.stopPropagation();
-        tryLoginAccount(acc.id);
-      });
-      li.addEventListener("click", (e) => {
-        if (/** @type {HTMLElement} */ (e.target).closest("[data-login]")) return;
-        tryLoginAccount(acc.id);
-      });
-    }
-    accountList.appendChild(li);
-  }
+function syncAuthAdminFields() {
+  const role = authAdminRole?.value || "player";
+  if (authAdminCharField) authAdminCharField.hidden = role !== "player";
 }
 
 /**
- * @param {string} accountId
+ * @param {HTMLElement | null} el
+ * @param {string} message
  */
-function tryLoginAccount(accountId) {
-  const acc = accounts.find((a) => a.id === accountId);
-  if (!acc) return;
-  if (accountNeedsPin(acc)) {
-    pendingPinAccountId = accountId;
-    if (accountPinLabel) accountPinLabel.textContent = `PIN для «${acc.name}»`;
-    if (accountPinInput) accountPinInput.value = "";
-    accountPinDialog?.showModal();
-    accountPinInput?.focus();
-    return;
+function setAuthError(el, message) {
+  if (!el) return;
+  if (message) {
+    el.textContent = message;
+    el.hidden = false;
+  } else {
+    el.textContent = "";
+    el.hidden = true;
   }
-  void loginAs(accountId, "", true).then((ok) => {
-    if (ok) accountDialog?.close();
-  });
 }
 
 /**
- * @param {string} accountId
- * @param {string} pin
+ * @param {unknown} err
+ * @param {string} fallback
+ */
+function parseAuthError(err, fallback) {
+  const msg = err instanceof Error ? err.message : String(err || "");
+  if (msg.includes("429") || msg.includes("Too many requests")) {
+    return "Слишком много попыток — подождите и повторите";
+  }
+  if (msg.includes("PIN") || msg.includes("400")) {
+    if (msg.includes("PIN")) return "PIN: 4–8 цифр";
+  }
+  if (msg.includes("Not logged in") || (msg.includes("401") && msg.includes("/parties"))) {
+    return "Сначала войдите в аккаунт";
+  }
+  if (msg.includes("401")) return "Неверный PIN";
+  if (msg.includes("403") || msg.includes("Master only")) return "Нужен аккаунт мастера";
+  if (msg.includes("404") && msg.includes("/parties")) {
+    return "Сервер без поддержки партий. Перезапустите: python -m server.main";
+  }
+  if (msg.includes("Invalid code")) return "Неверный код";
+  if (msg.includes("Account not found")) return "Сессия устарела — войдите снова";
+  if (msg.includes("404")) return fallback;
+  return fallback;
+}
+
+async function logoutSession() {
+  stopPartySync();
+  try {
+    await logoutCurrentAccount();
+  } catch {
+    /* ignore */
+  }
+  currentAccount = null;
+  currentParty = null;
+  partyMembers = [];
+  updateAccountUi();
+  updatePartyUi();
+  updateGameAccessUi();
+  showToast("Вы вышли из аккаунта");
+  openAuthDialog("login");
+}
+
+/**
+ * @param {{ name: string, pin: string }} credentials
  * @param {boolean} [announce]
  * @returns {Promise<boolean>}
  */
-async function loginAs(accountId, pin, announce = true) {
+async function loginAs(credentials, announce = true) {
   try {
-    currentAccount = await loginAsAccount(accountId, pin);
+    currentAccount = await loginAsAccount(credentials);
     applyAccountSession(announce);
     return true;
   } catch {
@@ -2893,7 +3459,8 @@ async function migrateLegacyIfNeeded(state) {
 
 async function boot() {
   setStatus("Подключение к SQLite…");
-  const ok = await pingApi();
+  const health = await fetchHealth();
+  const ok = health?.ok === true;
   if (!ok) {
     setStatus("Сервер не запущен. Выполните: python -m server.main");
     showToast("Нет связи с сервером (python -m server.main)");
@@ -2901,19 +3468,23 @@ async function boot() {
     if (stageHint) stageHint.textContent = "Запустите сервер: python -m server.main";
     return;
   }
+  if (!health.features?.includes("parties")) {
+    showToast("Перезапустите сервер — нужна поддержка партий");
+  }
 
-  let state = await fetchState();
+  let state = await fetchState().catch(() => ({
+    accounts: null,
+    characters: null,
+    enemies: null,
+    map: null,
+  }));
   state = await migrateLegacyIfNeeded(state);
 
   characters = hydrateCharacters(state.characters);
   enemies = hydrateEnemies(state.enemies);
   accounts = hydrateAccounts(state.accounts);
 
-  // Первичная запись дефолтов в БД
-  if (state.characters == null) await saveCharacters(characters);
-  if (state.enemies == null) await saveEnemies(enemies);
-
-  currentAccount = await fetchMe();
+  await refreshPartyContext();
 
   selectedActor = characters[0] ? { type: "pc", id: characters[0].id } : null;
 
@@ -2921,31 +3492,14 @@ async function boot() {
   renderEnemyList();
   updateAccountUi();
 
+  updateGameAccessUi();
+
   if (currentAccount) {
-    applyAccountSession(false);
-  } else {
-    const master = accounts.find((a) => a.role === "master");
-    if (master) await loginAs(master.id, "", false);
+    await resolvePartyGate();
+    return;
   }
 
-  const mapLoaded = state.map ? applyMapState(state.map) : loadMapStateFromLegacy();
-  if (mapLoaded) {
-    if (currentAccount?.role === "player") setMapRole("player", false);
-    stageHint?.classList.add("is-hidden");
-    updateLegend();
-    updateSeedDisplay();
-    redraw();
-    setStatus("Карта загружена из SQLite.");
-    showToast("SQLite подключён");
-  } else if (canRegenerateMap(currentAccount)) {
-    regenerateMap({ toast: false, switchToRooms: false });
-    void saveMapState();
-    setStatus("Отряд в комнате 1. Данные хранятся в SQLite.");
-    showToast("SQLite подключён");
-  } else {
-    stageHint?.classList.remove("is-hidden");
-    setStatus("Дождитесь, пока мастер сгенерирует карту, или войдите как мастер.");
-  }
+  openAuthDialog("register");
 }
 
 void boot();

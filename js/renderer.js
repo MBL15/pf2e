@@ -812,6 +812,49 @@ function drawDoorLeafMinimalQuad(ctx, quad, wood, woodDark, woodLight, frame, me
 }
 
 /**
+ * Вертикальная створка открытой двери — поворот 90° вбок в сторону комнаты.
+ * @param {(gx:number,gy:number,z?:number)=>{sx:number,sy:number}} project
+ * @param {number} x
+ * @param {number} y
+ * @param {import('./generator.js').DoorOrientation} orient
+ * @param {number} doorH
+ * @param {number} z0
+ * @returns {{sx:number,sy:number}[]}
+ */
+function doorOpenLeafFace(project, x, y, orient, doorH, z0) {
+  switch (orient.roomSide) {
+    case "n":
+      return [
+        project(x + 1, y, doorH),
+        project(x + 1, y - 1, doorH),
+        project(x + 1, y - 1, z0),
+        project(x + 1, y, z0),
+      ];
+    case "s":
+      return [
+        project(x, y + 1, doorH),
+        project(x, y + 2, doorH),
+        project(x, y + 2, z0),
+        project(x, y + 1, z0),
+      ];
+    case "w":
+      return [
+        project(x, y + 1, doorH),
+        project(x - 1, y + 1, doorH),
+        project(x - 1, y + 1, z0),
+        project(x, y + 1, z0),
+      ];
+    default:
+      return [
+        project(x + 1, y, doorH),
+        project(x + 2, y, doorH),
+        project(x + 2, y, z0),
+        project(x + 1, y, z0),
+      ];
+  }
+}
+
+/**
  * Вертикальная грань двери на стороне, обращённой к комнате.
  * @param {(gx:number,gy:number,z?:number)=>{sx:number,sy:number}} project
  * @param {number} x
@@ -937,21 +980,38 @@ function drawDoorIso(ctx, project, x, y, tileW, tileH, wallH, theme, open, orien
     fillFace(ctx, face, woodDark);
     drawDoorLeafMinimalQuad(ctx, face, wood, woodDark, woodLight, frame, metal, handleRight);
   } else {
-    const hinge = orient.roomSide === "n" ? project(x, y, z0) : orient.roomSide === "s" ? project(x + 1, y + 1, z0) : orient.roomSide === "w" ? project(x, y + 1, z0) : project(x + 1, y, z0);
-    const mid = project(x + 0.5, y + 0.5, z0);
-    const openTip = {
-      sx: mid.sx + (mid.sx - hinge.sx) * 0.85 + (orient.roomSide === "n" ? tileW * 0.15 : orient.roomSide === "s" ? -tileW * 0.15 : 0),
-      sy: mid.sy + (mid.sy - hinge.sy) * 0.85 + (orient.roomSide === "w" ? tileH * 0.15 : orient.roomSide === "e" ? -tileH * 0.15 : 0),
-    };
-    const face = doorVerticalFace(project, x, y, orient, doorH, z0);
-    const leaf = [
-      hinge,
-      { sx: hinge.sx + (face[1].sx - face[0].sx) * 0.45, sy: hinge.sy + (face[1].sy - face[0].sy) * 0.45 },
-      { sx: openTip.sx, sy: openTip.sy - doorH * 0.92 },
-      { sx: hinge.sx, sy: hinge.sy - doorH * 0.92 },
-    ];
-    fillFace(ctx, leaf, wood);
+    const leaf = doorOpenLeafFace(project, x, y, orient, doorH, z0);
+    fillFace(ctx, leaf, woodDark);
     drawDoorLeafMinimalQuad(ctx, leaf, wood, woodDark, woodLight, frame, metal, handleRight);
+    const jamH = doorH * 0.92;
+    const jams =
+      orient.roomSide === "n"
+        ? [
+            [project(x, y, jamH), project(x, y, z0)],
+            [project(x + 1, y, jamH), project(x + 1, y, z0)],
+          ]
+        : orient.roomSide === "s"
+          ? [
+              [project(x, y + 1, jamH), project(x, y + 1, z0)],
+              [project(x + 1, y + 1, jamH), project(x + 1, y + 1, z0)],
+            ]
+          : orient.roomSide === "w"
+            ? [
+                [project(x, y, jamH), project(x, y, z0)],
+                [project(x, y + 1, jamH), project(x, y + 1, z0)],
+              ]
+            : [
+                [project(x + 1, y, jamH), project(x + 1, y, z0)],
+                [project(x + 1, y + 1, jamH), project(x + 1, y + 1, z0)],
+              ];
+    ctx.strokeStyle = frame;
+    ctx.lineWidth = Math.max(1.5, tileW * 0.04);
+    for (const [top, bot] of jams) {
+      ctx.beginPath();
+      ctx.moveTo(top.sx, top.sy);
+      ctx.lineTo(bot.sx, bot.sy);
+      ctx.stroke();
+    }
   }
   ctx.restore();
 }

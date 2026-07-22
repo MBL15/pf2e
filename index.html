@@ -22,6 +22,10 @@
         </div>
       </div>
       <div class="header-actions">
+        <button type="button" class="party-chip" id="btnParty" title="Партия" hidden>
+          <span class="party-chip-label">Код</span>
+          <span class="party-chip-code" id="partyChipCode">------</span>
+        </button>
         <button type="button" class="account-chip" id="btnAccount" title="Аккаунты">
           <span class="account-chip-role" id="accountChipRole">—</span>
           <span class="account-chip-name" id="accountChipName">Войти</span>
@@ -30,6 +34,19 @@
         <button type="button" class="btn ghost help-btn" id="btnHelp" title="Краткая справка">Справка</button>
       </div>
     </header>
+
+    <div class="game-gate" id="gameGate" hidden>
+      <div class="game-gate-card">
+        <span class="game-gate-icon" aria-hidden="true">◇</span>
+        <h2 class="game-gate-title">Карта недоступна</h2>
+        <p class="game-gate-text" id="gameGateMessage">Войдите в аккаунт, чтобы начать игру.</p>
+        <div class="game-gate-actions">
+          <button type="button" class="btn primary" id="btnGameGateLogin">Войти</button>
+          <button type="button" class="btn ghost" id="btnGameGateRegister">Регистрация</button>
+          <button type="button" class="btn ghost" id="btnGameGateSwitch" hidden>Сменить аккаунт</button>
+        </div>
+      </div>
+    </div>
 
     <aside class="panel panel-controls">
       <nav class="panel-tabs" role="tablist" aria-label="Разделы">
@@ -91,7 +108,6 @@
           <div class="panel-section">
             <div class="panel-toolbar">
               <p class="panel-note" id="roomPickHint">Клик по комнате — открыть крупно. Мастер разрешает вход игрокам кнопкой «Вход».</p>
-              <button type="button" class="btn ghost small" id="btnCloseRoom" hidden>Назад</button>
             </div>
             <ul class="entity-list" id="roomList"></ul>
           </div>
@@ -164,8 +180,6 @@
           <button type="button" class="tool-btn is-active" data-tool="token" id="toolToken">Жетоны</button>
           <button type="button" class="tool-btn" data-tool="obstacle" id="toolObstacle">Препятствия</button>
         </div>
-
-        <button type="button" class="btn ghost" id="btnToolbarBack" hidden>Назад</button>
       </div>
 
       <div class="canvas-wrap" id="canvasWrap">
@@ -175,7 +189,10 @@
           <button type="button" class="zoom-btn zoom-label" id="btnZoomReset" title="Сбросить масштаб">100%</button>
           <button type="button" class="zoom-btn" id="btnZoomOut" title="Отдалить (− / колёсико)">−</button>
         </div>
-        <div class="room-banner" id="roomBanner" hidden></div>
+        <div class="room-banner" id="roomBanner" hidden>
+          <button type="button" class="btn ghost small room-exit-btn" id="btnExitRoom" hidden title="Esc — к общей карте">← К карте</button>
+          <span class="room-banner-text" id="roomBannerText"></span>
+        </div>
         <div class="stage-overlay is-hidden" id="stageHint">Нажмите «Перегенерировать карту»</div>
       </div>
 
@@ -252,15 +269,15 @@
                 <div class="profile-symbol-row">
                   <button type="button" class="profile-icon-btn" id="btnPortraitPrev" aria-label="Предыдущий">‹</button>
                   <select id="charSymbol" aria-label="Символ жетона">
-                    <option value="⚔">⚔</option>
-                    <option value="✦">✦</option>
-                    <option value="🛡">🛡</option>
-                    <option value="🏹">🏹</option>
-                    <option value="🔮">🔮</option>
-                    <option value="🗡">🗡</option>
-                    <option value="⚜">⚜</option>
-                    <option value="★">★</option>
-                  </select>
+              <option value="⚔">⚔</option>
+              <option value="✦">✦</option>
+              <option value="🛡">🛡</option>
+              <option value="🏹">🏹</option>
+              <option value="🔮">🔮</option>
+              <option value="🗡">🗡</option>
+              <option value="⚜">⚜</option>
+              <option value="★">★</option>
+            </select>
                   <button type="button" class="profile-icon-btn" id="btnPortraitNext" aria-label="Следующий">›</button>
                 </div>
               </label>
@@ -298,12 +315,12 @@
               <select id="charAncestry"></select>
             </label>
             <label class="profile-field">
-              <span>Происхождение</span>
-              <select id="charBackground"></select>
-            </label>
+            <span>Происхождение</span>
+            <select id="charBackground"></select>
+          </label>
             <label class="profile-field">
               <span>Класс</span>
-              <select id="charClass"></select>
+            <select id="charClass"></select>
             </label>
           </div>
         </section>
@@ -539,62 +556,169 @@
     </form>
   </dialog>
 
-  <dialog class="account-dialog" id="accountDialog">
-    <div class="account-shell">
-      <header class="dialog-head">
-        <h2>Аккаунты</h2>
-        <button type="button" class="btn ghost small" id="btnCloseAccountDialog">Закрыть</button>
+  <dialog class="auth-dialog" id="authDialog">
+    <div class="auth-shell">
+      <header class="auth-hero">
+        <div class="auth-hero-pattern" aria-hidden="true"></div>
+        <div class="auth-hero-glow" aria-hidden="true"></div>
+        <span class="auth-brand-mark" aria-hidden="true"><span class="auth-brand-mark-inner"></span></span>
+        <div class="auth-hero-copy">
+          <p class="auth-hero-kicker">Pathfinder 2e</p>
+          <h2 class="auth-hero-title">Глубины</h2>
+          <p class="auth-hero-sub" id="authHeroSub">Войдите в партию</p>
+        </div>
+        <button type="button" class="auth-close" id="btnCloseAuth" aria-label="Закрыть">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="M1 1l12 12M13 1L1 13" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"/></svg>
+        </button>
       </header>
 
-      <p class="panel-note" id="accountSessionNote">Выберите аккаунт или создайте новый.</p>
+      <div class="auth-body">
+        <nav class="auth-tabs" id="authTabs" role="tablist" aria-label="Вход и регистрация">
+          <button type="button" class="auth-tab is-active" role="tab" data-auth-tab="register" aria-selected="true">Регистрация</button>
+          <button type="button" class="auth-tab" role="tab" data-auth-tab="login" aria-selected="false">Вход</button>
+        </nav>
 
-      <ul class="entity-list account-list" id="accountList"></ul>
+        <!-- Профиль -->
+        <section class="auth-panel auth-panel--session" id="authSessionPanel" hidden>
+          <div class="auth-profile">
+            <div class="auth-avatar-wrap">
+              <div class="auth-avatar" id="authSessionAvatar">?</div>
+            </div>
+            <div class="auth-profile-meta">
+              <span class="auth-role-badge" id="authSessionRole">—</span>
+              <h3 class="auth-profile-name" id="authSessionName">—</h3>
+              <p class="auth-profile-note" id="authSessionNote">—</p>
+            </div>
+          </div>
+          <div class="auth-session-card" id="authSessionCard"></div>
+          <div class="party-invite-block" id="authPartyInvite" hidden>
+            <p class="party-invite-label">Код для игроков</p>
+            <div class="party-invite-row">
+              <span class="party-invite-code" id="authPartyInviteCode">000000</span>
+              <button type="button" class="btn ghost small" id="btnCopyPartyCode">Копировать</button>
+            </div>
+            <p class="party-invite-hint">Поделитесь кодом — игроки введут его после регистрации.</p>
+          </div>
+          <ul class="party-member-list" id="authPartyMemberList"></ul>
+          <div class="auth-actions-stack">
+            <button type="button" class="btn ghost btn-block" id="btnAuthSwitch">Сменить аккаунт</button>
+            <button type="button" class="btn danger ghost btn-block" id="btnLogout">Выйти</button>
+          </div>
+          <details class="auth-admin" id="authAdminBlock" hidden>
+            <summary>
+              <span class="auth-admin-icon" aria-hidden="true">＋</span>
+              Создать аккаунт для игрока
+            </summary>
+            <form id="authAdminForm" class="auth-form">
+              <label class="field">
+                <span>Имя</span>
+                <input type="text" id="authAdminName" maxlength="32" required placeholder="Имя игрока или мастера" />
+              </label>
+              <label class="field">
+                <span>Роль</span>
+                <select id="authAdminRole">
+                  <option value="player">Игрок</option>
+                  <option value="master">Мастер</option>
+                </select>
+              </label>
+              <label class="field" id="authAdminCharField">
+                <span>Персонаж</span>
+                <select id="authAdminCharacter"></select>
+              </label>
+              <label class="field">
+                <span>PIN <em class="field-hint">4–8 цифр</em></span>
+                <input type="password" id="authAdminPin" maxlength="8" inputmode="numeric" required placeholder="4–8 цифр" autocomplete="new-password" />
+              </label>
+              <button type="submit" class="btn primary btn-block auth-submit">Создать аккаунт</button>
+            </form>
+          </details>
+        </section>
 
-      <form id="accountCreateForm" class="account-create">
-        <p class="panel-label">Новый аккаунт</p>
-        <div class="account-create-grid">
-          <label class="field">
-            <span>Имя</span>
-            <input type="text" id="accountName" maxlength="32" required placeholder="Например, Матвей" />
-          </label>
-          <label class="field">
-            <span>Роль</span>
-            <select id="accountRole">
-              <option value="player">Игрок</option>
-              <option value="master">Мастер</option>
-            </select>
-          </label>
-          <label class="field" id="accountCharField">
-            <span>Персонаж</span>
-            <select id="accountCharacter"></select>
-          </label>
-          <label class="field">
-            <span>PIN (необязательно)</span>
-            <input type="password" id="accountPin" maxlength="8" inputmode="numeric" placeholder="····" autocomplete="new-password" />
-          </label>
-        </div>
-        <button type="submit" class="btn primary btn-block">Создать и войти</button>
-      </form>
+        <!-- Регистрация -->
+        <section class="auth-panel" id="authRegisterPanel">
+          <p class="auth-panel-lead">Создайте аккаунт — затем введите код партии от мастера.</p>
+          <form id="authRegisterForm" class="auth-form">
+            <label class="field">
+              <span>Ваше имя</span>
+              <input type="text" id="authRegisterName" maxlength="32" required placeholder="Как вас зовут?" autocomplete="name" />
+            </label>
+            <label class="field">
+              <span>PIN <em class="field-hint">4–8 цифр</em></span>
+              <input type="password" id="authRegisterPin" maxlength="8" inputmode="numeric" required placeholder="Защита входа" autocomplete="new-password" />
+            </label>
+            <p class="auth-error" id="authRegisterError" hidden></p>
+            <button type="submit" class="btn primary btn-block auth-submit">Создать аккаунт</button>
+          </form>
+          <p class="auth-footnote">
+            Уже играли?
+            <button type="button" class="auth-link" id="btnShowLogin">Войти в существующий</button>
+          </p>
+        </section>
+
+        <!-- Создание партии (мастер) -->
+        <section class="auth-panel" id="authPartyCreatePanel" hidden>
+          <p class="auth-panel-lead">Создайте команду — игроки подключатся по 6-значному коду.</p>
+          <p class="auth-footnote" id="authPartyCreateHint">Сначала войдите как <strong>Мастер</strong> (вкладка «Вход»).</p>
+          <form id="authPartyCreateForm" class="auth-form">
+            <label class="field">
+              <span>Название партии</span>
+              <input type="text" id="authPartyName" maxlength="40" required placeholder="Например, «Глубины — сессия 1»" value="Партия" />
+            </label>
+            <p class="auth-error" id="authPartyCreateError" hidden></p>
+            <button type="submit" class="btn primary btn-block auth-submit">Создать команду</button>
+          </form>
+          <p class="auth-footnote">
+            <button type="button" class="auth-link" id="btnPartyCreateSwitch">Сменить аккаунт</button>
+          </p>
+        </section>
+
+        <!-- Вход в партию по коду -->
+        <section class="auth-panel" id="authPartyJoinPanel" hidden>
+          <p class="auth-panel-lead">Введите код, который прислал мастер.</p>
+          <form id="authPartyJoinForm" class="auth-form">
+            <label class="field">
+              <span>Код партии</span>
+              <input type="text" id="authPartyCode" class="party-code-input" maxlength="6" inputmode="numeric" pattern="[0-9]{6}" required placeholder="000000" autocomplete="one-time-code" />
+            </label>
+            <p class="auth-error" id="authPartyJoinError" hidden></p>
+            <button type="submit" class="btn primary btn-block auth-submit">Присоединиться</button>
+          </form>
+          <p class="auth-footnote">
+            <button type="button" class="auth-link" id="btnPartyJoinSwitch">Сменить аккаунт</button>
+          </p>
+        </section>
+
+        <!-- Выбор героя -->
+        <section class="auth-panel" id="authPartyHeroPanel" hidden>
+          <p class="auth-panel-lead">Выберите героя для этой партии.</p>
+          <div class="party-hero-grid" id="authPartyHeroGrid"></div>
+          <p class="auth-error" id="authPartyHeroError" hidden></p>
+        </section>
+
+        <!-- Вход -->
+        <section class="auth-panel" id="authLoginPanel" hidden>
+          <p class="auth-panel-lead">Введите имя аккаунта и PIN.</p>
+          <form id="authLoginForm" class="auth-form">
+            <label class="field">
+              <span>Имя</span>
+              <input type="text" id="authLoginName" maxlength="32" required placeholder="Как при регистрации" autocomplete="username" />
+            </label>
+            <label class="field">
+              <span>PIN</span>
+              <input type="password" id="authLoginPin" maxlength="8" inputmode="numeric" required placeholder="4–8 цифр" autocomplete="current-password" />
+            </label>
+            <p class="auth-error" id="authLoginError" hidden></p>
+            <button type="submit" class="btn primary btn-block auth-submit">Войти</button>
+          </form>
+          <p class="auth-footnote">
+            Впервые здесь?
+            <button type="button" class="auth-link" id="btnShowRegister">Зарегистрироваться</button>
+          </p>
+        </section>
+      </div>
     </div>
   </dialog>
 
-  <dialog class="account-dialog account-pin-dialog" id="accountPinDialog">
-    <form id="accountPinForm" class="account-shell">
-      <header class="dialog-head">
-        <h2>Вход</h2>
-      </header>
-      <p class="panel-note" id="accountPinLabel">Введите PIN</p>
-      <label class="field">
-        <span>PIN</span>
-        <input type="password" id="accountPinInput" maxlength="8" inputmode="numeric" required autocomplete="current-password" />
-      </label>
-      <div class="dialog-actions">
-        <button type="button" class="btn ghost" id="btnCancelPin">Отмена</button>
-        <button type="submit" class="btn primary">Войти</button>
-      </div>
-    </form>
-  </dialog>
-
-  <script type="module" src="js/main.js?v=5"></script>
+  <script type="module" src="js/main.js?v=24"></script>
 </body>
 </html>

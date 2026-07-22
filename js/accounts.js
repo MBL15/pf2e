@@ -3,6 +3,7 @@ import {
   fetchAccounts,
   loginAccount,
   logoutAccount,
+  registerAccount as apiRegisterAccount,
   unlinkCharacterFromAccountsApi,
 } from "./api.js";
 
@@ -15,6 +16,7 @@ const ACCOUNTS_KEY = "glubiny-accounts-v1";
  * @property {'master'|'player'} role
  * @property {string|null} characterId
  * @property {boolean} [hasPin]
+ * @property {string|null} [partyId]
  */
 
 /**
@@ -55,12 +57,19 @@ export async function createAccount(data) {
 }
 
 /**
- * @param {string} accountId
- * @param {string} pin
+ * @param {{ name: string, characterId?: string|null, pin?: string }} data
  * @returns {Promise<Account>}
  */
-export async function loginAsAccount(accountId, pin) {
-  return loginAccount(accountId, pin);
+export async function registerAccount(data) {
+  return apiRegisterAccount(data);
+}
+
+/**
+ * @param {{ name: string, pin: string }} credentials
+ * @returns {Promise<Account>}
+ */
+export async function loginAsAccount(credentials) {
+  return loginAccount(credentials);
 }
 
 /** @returns {Promise<void>} */
@@ -91,6 +100,7 @@ function normalizeAccount(raw) {
     role,
     characterId: o.characterId ? String(o.characterId) : null,
     hasPin: Boolean(o.hasPin),
+    partyId: o.partyId ? String(o.partyId) : null,
   };
 }
 
@@ -109,6 +119,7 @@ function normalizeLegacyAccount(raw) {
     role,
     characterId: o.characterId ? String(o.characterId) : null,
     hasPin: Boolean(o.pin),
+    partyId: null,
   };
 }
 
