@@ -1,5 +1,6 @@
 node_modules/
 __pycache__/
 *.pyc
+.env
 data/glubiny.sqlite
 data/glubiny.sqlite-*

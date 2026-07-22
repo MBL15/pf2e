@@ -1,0 +1,16 @@
+services:
+  glubiny:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "${PORT:-8765}:8765"
+    environment:
+      HOST: 0.0.0.0
+      PORT: 8765
+      HTTPS: ${HTTPS:-0}
+      TRUST_PROXY: ${TRUST_PROXY:-0}
+    volumes:
+      - glubiny-data:/app/data
+
+volumes:
+  glubiny-data:

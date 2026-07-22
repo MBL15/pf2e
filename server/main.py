@@ -18,8 +18,10 @@ from .db import get_db, get_db_path, kv_get_party, kv_set_party, load_full_state
 from .ratelimit import RateLimited, check_rate_limit, client_ip_from_address
 
 ROOT = Path(__file__).resolve().parent.parent
+HOST = os.environ.get("HOST", "127.0.0.1")
 PORT = int(os.environ.get("PORT", "8765"))
 USE_HTTPS = os.environ.get("HTTPS", "").lower() in ("1", "true", "yes")
+TRUST_PROXY = os.environ.get("TRUST_PROXY", "").lower() in ("1", "true", "yes")
 
 MIME_OVERRIDES = {
     ".html": "text/html; charset=utf-8",
@@ -185,6 +187,13 @@ class Handler(BaseHTTPRequestHandler):
         return account
 
     def _client_ip(self) -> str:
+        if TRUST_PROXY:
+            forwarded = self.headers.get("X-Forwarded-For", "")
+            if forwarded:
+                return forwarded.split(",")[0].strip()
+            real_ip = self.headers.get("X-Real-IP", "")
+            if real_ip:
+                return real_ip.strip()
         return client_ip_from_address(self.client_address)
 
     def _require_master(self) -> dict[str, Any] | None:
@@ -524,9 +533,17 @@ def main() -> None:
     acc.ensure_migrated()
     migrated = acc.ensure_pins_migrated()
     party.ensure_legacy_party_migration()
-    server = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
-    print(f"Глубины: http://127.0.0.1:{PORT}")
+    server = ThreadingHTTPServer((HOST, PORT), Handler)
+    bind = f"{HOST}:{PORT}"
+    if HOST in ("0.0.0.0", "::"):
+        print(f"Глубины: http://0.0.0.0:{PORT}  (все интерфейсы; откройте http://<IP-хоста>:{PORT})")
+    else:
+        print(f"Глубины: http://{bind}")
     print(f"SQLite:  {get_db_path()}")
+    if USE_HTTPS:
+        print("Cookie Secure: включён (HTTPS=1)")
+    if TRUST_PROXY:
+        print("TRUST_PROXY: включён — IP клиента из X-Forwarded-For / X-Real-IP")
     if migrated:
         print(
             f"Безопасность: аккаунтам без PIN назначен PIN {acc.DEFAULT_MIGRATION_PIN}: "

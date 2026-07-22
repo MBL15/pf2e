@@ -1,0 +1,6 @@
+# Пример: HTTPS на домене, прокси на контейнер/процесс на порту 8765.
+# Запуск: caddy run --config deploy/Caddyfile
+
+glubiny.example.com {
+    reverse_proxy 127.0.0.1:8765
+}
